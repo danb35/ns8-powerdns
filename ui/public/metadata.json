@@ -1,9 +1,20 @@
 {
   "name": "powerdns",
   "description": {
-    "en": "Authoritative DNS server with DNSSEC and cluster replication, based on PowerDNS"
+    "en": "Authoritative DNS server with DNSSEC and cluster replication, based on PowerDNS",
+    "ar": "خادم DNS موثوق مع DNSSEC والنسخ المتماثل عبر المجموعة، مبني على PowerDNS",
+    "de": "Autoritativer DNS-Server mit DNSSEC und Cluster-Replikation, basierend auf PowerDNS",
+    "es": "Servidor DNS autoritativo con DNSSEC y replicación en el clúster, basado en PowerDNS",
+    "fr": "Serveur DNS faisant autorité avec DNSSEC et réplication dans le cluster, basé sur PowerDNS",
+    "it": "Server DNS autoritativo con DNSSEC e replica nel cluster, basato su PowerDNS",
+    "pt": "Servidor DNS autoritativo com DNSSEC e replicação no cluster, baseado em PowerDNS",
+    "pt_BR": "Servidor DNS autoritativo com DNSSEC e replicação no cluster, baseado em PowerDNS",
+    "ta": "DNSSEC மற்றும் கொத்து நகலெடுப்புடன் கூடிய, PowerDNS அடிப்படையிலான அதிகாரப்பூர்வ DNS சேவையகம்",
+    "uk": "Авторитетний сервер DNS із DNSSEC і реплікацією в кластері на основі PowerDNS"
   },
-  "categories": ["system_administration"],
+  "categories": [
+    "system_administration"
+  ],
   "authors": [
     {
       "name": "Dan Brown"
