@@ -15,9 +15,9 @@ request = json.load(sys.stdin)
 
 # TODO: do something with the request payload. For example configure a
 # custom route in our web router. Here the path is hardcoded as
-# 'kickstart'.
+# 'powerdns'.
 
-# Configure Traefik to route "/kickstart" path requests to the kickstart
+# Configure Traefik to route "/powerdns" path requests to the powerdns
 # service. Since the "instance" attribute starts with MODULE_ID, the route
 # will be removed automatically with the module.
 response = agent.tasks.run(
@@ -28,7 +28,7 @@ response = agent.tasks.run(
         'url':  'http://127.0.0.1:' + os.environ["TCP_PORT"],
         'http2https': False,
         'lets_encrypt': False,
-        'path': '/kickstart',
+        'path': '/powerdns',
     },
 )
 

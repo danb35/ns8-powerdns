@@ -1,19 +1,18 @@
 {
-  "name": "kickstart",
+  "name": "powerdns",
   "description": {
-    "en": "My kickstart module"
+    "en": "Authoritative DNS server with DNSSEC and cluster replication, based on PowerDNS"
   },
-  "categories": [],
+  "categories": ["system_administration"],
   "authors": [
     {
-      "name": "Name Surname",
-      "email": "author@yourmail.org"
+      "name": "Dan Brown"
     }
   ],
   "docs": {
-    "documentation_url": "https://docs.kickstart.com/",
-    "bug_url": "https://github.com/NethServer/dev",
-    "code_url": "https://github.com/author/ns8-kickstart"
+    "documentation_url": "https://github.com/danb35/ns8-powerdns/blob/master/README.md",
+    "bug_url": "https://github.com/danb35/ns8-powerdns/issues",
+    "code_url": "https://github.com/danb35/ns8-powerdns"
   },
-  "source": "ghcr.io/nethserver/kickstart"
+  "source": "ghcr.io/danb35/powerdns"
 }

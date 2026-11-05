@@ -3,7 +3,7 @@ name: Test UI build for Renovate PRs
 on:
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   build:
