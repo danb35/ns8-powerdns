@@ -2,7 +2,61 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "configure-module input",
     "$id": "http://schema.nethserver.org/powerdns/configure-module-input.json",
-    "description": "Configure powerdns",
-    "examples": [],
-    "type": "object"
+    "description": "Configure the instance as the cluster's primary or as a secondary",
+    "type": "object",
+    "required": [
+        "role",
+        "ns_name"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "role": {
+            "type": "string",
+            "enum": [
+                "primary",
+                "secondary"
+            ],
+            "description": "Fixed after the first configuration"
+        },
+        "ns_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Public host name this instance answers as"
+        },
+        "advertise": {
+            "type": "boolean",
+            "description": "List this instance in the apex NS of every zone"
+        },
+        "listen_addresses": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Node addresses to serve DNS on, besides the cluster VPN address"
+        },
+        "hostmaster": {
+            "type": "string",
+            "description": "SOA contact; required on a primary"
+        },
+        "primary": {
+            "type": "string",
+            "description": "Module UUID of the primary to follow; required on a secondary"
+        },
+        "soa_refresh": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_retry": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_expire": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_minimum": {
+            "type": "integer",
+            "minimum": 1
+        }
+    }
 }

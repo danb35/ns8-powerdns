@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.environ['AGENT_INSTALL_DIR'], 'pypkg'))
+
+import json
+
+import agent
+
+from pdnsmodule import config
+
+# Restic does not restore state/environment: the core hands it over in the request.
+request = json.load(sys.stdin)
+environment = request['environment']
+agent.mset_env({k: environment[k] for k in config.ENV_VARS if k in environment})

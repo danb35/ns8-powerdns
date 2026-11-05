@@ -1,0 +1,14 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+exec 1>&2
+
+systemctl --user daemon-reload
+systemctl --user try-restart powerdns.service
+if systemctl --user is-enabled --quiet powerdns.service; then
+    systemctl --user enable --now powerdns-reconcile.timer
+fi

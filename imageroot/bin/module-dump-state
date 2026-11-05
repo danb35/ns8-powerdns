@@ -1,0 +1,24 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Before Restic. A consistent copy of a primary's database, with SQLite's online
+# backup, in a place the backup reads. A secondary transfers its zones again after a
+# restore, so its file is empty; it must exist for etc/state-include.conf.
+
+set -e
+
+if ! grep -q '^POWERDNS_ROLE=primary$' environment; then
+    : > pdns.sqlite3.backup
+    exit 0
+fi
+if podman container exists powerdns && [[ "$(podman inspect -f '{{.State.Running}}' powerdns)" == true ]]; then
+    podman exec powerdns sqlite3 /var/lib/powerdns/pdns.sqlite3 ".backup /var/lib/powerdns/backup.tmp"
+    mv -f pdns/backup.tmp pdns.sqlite3.backup
+else
+    # Nothing has the database open
+    cp -f pdns/pdns.sqlite3 pdns.sqlite3.backup
+fi

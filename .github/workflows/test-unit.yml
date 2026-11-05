@@ -1,0 +1,33 @@
+name: "Unit tests"
+
+# imageroot/pypkg against real PowerDNS servers in Docker. See tests/unit/.
+
+on:
+  push:
+    paths:
+      - 'imageroot/pypkg/**'
+      - 'tests/unit/**'
+      - 'build-images.sh'
+      - '.github/workflows/test-unit.yml'
+  pull_request:
+    paths:
+      - 'imageroot/pypkg/**'
+      - 'tests/unit/**'
+      - 'build-images.sh'
+      - '.github/workflows/test-unit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install dig
+        run: sudo apt-get update && sudo apt-get install -y dnsutils
+      - run: python3 -m unittest discover -s tests/unit -v

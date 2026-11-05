@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# create-module does not run again on update. SADD only adds, so this is harmless.
+
+set -e
+exec 1>&2
+
+"${AGENT_INSTALL_DIR}/actions/create-module/30grants"

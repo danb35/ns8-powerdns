@@ -1,5 +1,5 @@
 <!--
-  Copyright (C) 2023 Nethesis S.r.l.
+  Copyright (C) 2026 Dan Brown
   SPDX-License-Identifier: GPL-3.0-or-later
 -->
 <template>
@@ -9,12 +9,22 @@
         <h2>{{ $t("settings.title") }}</h2>
       </cv-column>
     </cv-row>
-    <cv-row v-if="error.getConfiguration">
+    <cv-row v-if="error.load">
       <cv-column>
         <NsInlineNotification
           kind="error"
           :title="$t('action.get-configuration')"
-          :description="error.getConfiguration"
+          :description="error.load"
+          :showCloseButton="false"
+        />
+      </cv-column>
+    </cv-row>
+    <cv-row v-if="missingAddresses.length">
+      <cv-column>
+        <NsInlineNotification
+          kind="warning"
+          :title="$t('settings.missing_addresses')"
+          :description="missingAddresses.join(', ')"
           :showCloseButton="false"
         />
       </cv-column>
@@ -22,33 +32,136 @@
     <cv-row>
       <cv-column>
         <cv-tile light>
-          <cv-form @submit.prevent="configureModule">
-            <!-- TODO remove test field and code configuration fields -->
-            <cv-text-input
-              :label="$t('settings.test_field')"
-              v-model="testField"
-              :placeholder="$t('settings.test_field')"
-              :disabled="loading.getConfiguration || loading.configureModule"
-              :invalid-message="error.testField"
-              ref="testField"
-            ></cv-text-input>
-            <cv-row v-if="error.configureModule">
-              <cv-column>
-                <NsInlineNotification
-                  kind="error"
-                  :title="$t('action.configure-module')"
-                  :description="error.configureModule"
-                  :showCloseButton="false"
-                />
-              </cv-column>
-            </cv-row>
+          <cv-skeleton-text
+            v-if="loading.load"
+            :paragraph="true"
+            :line-count="8"
+          />
+          <cv-form v-else @submit.prevent="save">
+            <div class="bx--label">{{ $t("settings.role") }}</div>
+            <cv-radio-group
+              :vertical="true"
+              class="mg-bottom-md"
+            >
+              <cv-radio-button
+                v-model="form.role"
+                name="role"
+                value="primary"
+                :label="$t('settings.role_primary')"
+                :disabled="configured || primaries.length > 0"
+              />
+              <cv-radio-button
+                v-model="form.role"
+                name="role"
+                value="secondary"
+                :label="$t('settings.role_secondary')"
+                :disabled="configured"
+              />
+            </cv-radio-group>
+            <NsInlineNotification
+              v-if="!configured && primaries.length"
+              kind="info"
+              :title="$t('settings.primary_exists_title')"
+              :description="
+                $t('settings.primary_exists', {
+                  primary: primaries[0].module_id,
+                })
+              "
+              :showCloseButton="false"
+            />
+            <cv-select
+              v-if="form.role === 'secondary'"
+              v-model="form.primary"
+              :label="$t('settings.primary')"
+              :invalid-message="error.primary"
+              ref="primary"
+            >
+              <cv-select-option disabled hidden value="">
+                {{ $t("settings.choose_primary") }}
+              </cv-select-option>
+              <cv-select-option
+                v-for="p in primaries"
+                :key="p.module_uuid"
+                :value="p.module_uuid"
+              >
+                {{ p.ui_name ? `${p.ui_name} (${p.module_id})` : p.module_id }}
+              </cv-select-option>
+            </cv-select>
+            <NsTextInput
+              v-model.trim="form.ns_name"
+              :label="$t('settings.ns_name')"
+              :helper-text="$t('settings.ns_name_helper')"
+              placeholder="ns1.example.com"
+              :invalid-message="error.ns_name"
+              ref="ns_name"
+            />
+            <NsToggle
+              v-model="form.advertise"
+              value="advertise"
+              :form-item="true"
+              :label="$t('settings.advertise')"
+            >
+              <template slot="tooltip">
+                {{ $t("settings.advertise_helper") }}
+              </template>
+              <template slot="text-left">{{
+                $t("settings.disabled")
+              }}</template>
+              <template slot="text-right">{{
+                $t("settings.enabled")
+              }}</template>
+            </NsToggle>
+            <div class="bx--form-item mg-bottom-md">
+              <div class="bx--label">{{ $t("settings.listen_addresses") }}</div>
+              <div class="bx--form__helper-text mg-bottom-sm">
+                {{
+                  $t("settings.listen_addresses_helper", { vpn: vpnAddress })
+                }}
+              </div>
+              <cv-checkbox
+                v-for="a in nodeAddresses"
+                :key="a.address"
+                v-model="form.listen_addresses"
+                :value="a.address"
+                :disabled="!isFree(a)"
+                :label="addressLabel(a)"
+              />
+              <div v-if="error.listen_addresses" class="validation-error">
+                {{ error.listen_addresses }}
+              </div>
+            </div>
+            <template v-if="form.role === 'primary'">
+              <NsTextInput
+                v-model.trim="form.hostmaster"
+                :label="$t('settings.hostmaster')"
+                placeholder="hostmaster@example.com"
+                :invalid-message="error.hostmaster"
+                ref="hostmaster"
+              />
+              <NsTextInput
+                v-for="t in soaTimers"
+                :key="t"
+                v-model.number="form['soa_' + t]"
+                type="number"
+                min="1"
+                :label="$t('settings.soa_' + t)"
+              />
+            </template>
+            <NsInlineNotification
+              v-if="error.save"
+              kind="error"
+              :title="$t('action.configure-module')"
+              :description="error.save"
+              :showCloseButton="false"
+            />
             <NsButton
               kind="primary"
               :icon="Save20"
-              :loading="loading.configureModule"
-              :disabled="loading.getConfiguration || loading.configureModule"
-              >{{ $t("settings.save") }}</NsButton
+              :loading="loading.save"
+              :disabled="loading.save"
             >
+              {{ $t("settings.save") }}
+            </NsButton>
           </cv-form>
         </cv-tile>
       </cv-column>
@@ -57,49 +170,52 @@
 </template>
 
 <script>
-import to from "await-to-js";
-import { mapState } from "vuex";
 import {
   QueryParamService,
-  UtilService,
-  TaskService,
   IconService,
   PageTitleService,
 } from "@nethserver/ns8-ui-lib";
+import moduleTask from "../mixins/moduleTask";
 
 export default {
   name: "Settings",
-  mixins: [
-    TaskService,
-    IconService,
-    UtilService,
-    QueryParamService,
-    PageTitleService,
-  ],
+  mixins: [moduleTask, IconService, QueryParamService, PageTitleService],
   pageTitle() {
     return this.$t("settings.title") + " - " + this.appName;
   },
   data() {
     return {
-      q: {
-        page: "settings",
-      },
+      q: { page: "settings" },
       urlCheckInterval: null,
-      testField: "", // TODO remove
-      loading: {
-        getConfiguration: false,
-        configureModule: false,
+      configured: false,
+      primaries: [],
+      nodeAddresses: [],
+      missingAddresses: [],
+      vpnAddress: "",
+      soaTimers: ["refresh", "retry", "expire", "minimum"],
+      form: {
+        role: "primary",
+        primary: "",
+        ns_name: "",
+        advertise: true,
+        listen_addresses: [],
+        hostmaster: "",
+        soa_refresh: 10800,
+        soa_retry: 3600,
+        soa_expire: 604800,
+        soa_minimum: 3600,
       },
+      loading: { load: true, save: false },
       error: {
-        getConfiguration: "",
-        configureModule: "",
-        testField: "", // TODO remove
-        // TODO add all validation error fields
+        load: "",
+        save: "",
+        role: "",
+        primary: "",
+        ns_name: "",
+        hostmaster: "",
+        listen_addresses: "",
       },
     };
-  },
-  computed: {
-    ...mapState(["instanceName", "core", "appName"]),
   },
   beforeRouteEnter(to, from, next) {
     next((vm) => {
@@ -112,160 +228,91 @@ export default {
     next();
   },
   created() {
-    this.getConfiguration();
+    this.load();
   },
   methods: {
-    async getConfiguration() {
-      this.loading.getConfiguration = true;
-      this.error.getConfiguration = "";
-      const taskAction = "get-configuration";
-      const eventId = this.getUuid();
-
-      // register to task error
-      this.core.$root.$once(
-        `${taskAction}-aborted-${eventId}`,
-        this.getConfigurationAborted
-      );
-
-      // register to task completion
-      this.core.$root.$once(
-        `${taskAction}-completed-${eventId}`,
-        this.getConfigurationCompleted
-      );
-
-      const res = await to(
-        this.createModuleTaskForApp(this.instanceName, {
-          action: taskAction,
-          extra: {
-            title: this.$t("action." + taskAction),
-            isNotificationHidden: true,
-            eventId,
-          },
-        })
-      );
-      const err = res[0];
-
-      if (err) {
-        console.error(`error creating task ${taskAction}`, err);
-        this.error.getConfiguration = this.getErrorMessage(err);
-        this.loading.getConfiguration = false;
-        return;
-      }
+    isFree(a) {
+      return a.in_use_by_self || (a.udp_free && a.tcp_free);
     },
-    getConfigurationAborted(taskResult, taskContext) {
-      console.error(`${taskContext.action} aborted`, taskResult);
-      this.error.getConfiguration = this.$t("error.generic_error");
-      this.loading.getConfiguration = false;
+    addressLabel(a) {
+      return this.isFree(a)
+        ? a.address
+        : this.$t("settings.address_busy", { address: a.address });
     },
-    getConfigurationCompleted(taskContext, taskResult) {
-      this.loading.getConfiguration = false;
-      const config = taskResult.output;
-
-      // TODO set configuration fields
-      // ...
-
-      // TODO remove
-      console.log("config", config);
-
-      // TODO focus first configuration field
-      this.focusElement("testField");
-    },
-    validateConfigureModule() {
-      this.clearErrors(this);
-      let isValidationOk = true;
-
-      // TODO remove testField and validate configuration fields
-      if (!this.testField) {
-        // test field cannot be empty
-        this.error.testField = this.$t("common.required");
-
-        if (isValidationOk) {
-          this.focusElement("testField");
-          isValidationOk = false;
-        }
-      }
-      return isValidationOk;
-    },
-    configureModuleValidationFailed(validationErrors) {
-      this.loading.configureModule = false;
-      let focusAlreadySet = false;
-
-      for (const validationError of validationErrors) {
-        const field = validationError.field;
-
-        if (field !== "(root)") {
-          // set i18n error message
-          this.error[field] = this.$t("settings." + validationError.error);
-
-          if (!focusAlreadySet) {
-            this.focusElement(field);
-            focusAlreadySet = true;
+    async load() {
+      this.loading.load = true;
+      this.error.load = "";
+      try {
+        const config = await this.runTask("get-configuration");
+        this.configured = config.configured;
+        this.primaries = config.primaries;
+        this.nodeAddresses = config.node_addresses;
+        this.missingAddresses = config.missing_addresses || [];
+        this.vpnAddress = config.vpn_address;
+        const form = { ...this.form };
+        Object.keys(form).forEach((k) => {
+          if (config[k] !== undefined && config[k] !== "") {
+            form[k] = config[k];
           }
+        });
+        if (!config.configured && config.primaries.length) {
+          // There can be only one primary: offer to follow it.
+          form.role = "secondary";
+          form.primary = config.primaries[0].module_uuid;
+        }
+        this.form = form;
+      } catch (failure) {
+        this.error.load = this.taskErrorText(failure);
+      }
+      this.loading.load = false;
+    },
+    validate() {
+      this.clearErrors(this);
+      const required = ["ns_name"];
+      if (this.form.role === "primary") required.push("hostmaster");
+      if (this.form.role === "secondary") required.push("primary");
+      let ok = true;
+      for (const field of required) {
+        if (!this.form[field]) {
+          this.error[field] = this.$t("common.required");
+          if (ok) this.focusElement(field);
+          ok = false;
         }
       }
+      return ok;
     },
-    async configureModule() {
-      const isValidationOk = this.validateConfigureModule();
-      if (!isValidationOk) {
-        return;
+    async save() {
+      if (!this.validate()) return;
+      this.loading.save = true;
+      const data = { ...this.form };
+      if (data.role === "primary") delete data.primary;
+      try {
+        await this.runTask(
+          "configure-module",
+          data,
+          this.$t("settings.configure_instance", {
+            instance: this.instanceName,
+          })
+        );
+        await this.load();
+      } catch (failure) {
+        if (failure.validationErrors) {
+          for (const e of failure.validationErrors) {
+            const text = this.$t("errors." + e.error, { value: e.value });
+            if (
+              this.error[e.parameter] !== undefined &&
+              e.parameter !== "role"
+            ) {
+              this.error[e.parameter] = text;
+            } else {
+              this.error.save = text;
+            }
+          }
+        } else {
+          this.error.save = failure.message;
+        }
       }
-
-      this.loading.configureModule = true;
-      const taskAction = "configure-module";
-      const eventId = this.getUuid();
-
-      // register to task error
-      this.core.$root.$once(
-        `${taskAction}-aborted-${eventId}`,
-        this.configureModuleAborted
-      );
-
-      // register to task validation
-      this.core.$root.$once(
-        `${taskAction}-validation-failed-${eventId}`,
-        this.configureModuleValidationFailed
-      );
-
-      // register to task completion
-      this.core.$root.$once(
-        `${taskAction}-completed-${eventId}`,
-        this.configureModuleCompleted
-      );
-
-      const res = await to(
-        this.createModuleTaskForApp(this.instanceName, {
-          action: taskAction,
-          data: {
-            // TODO configuration fields
-          },
-          extra: {
-            title: this.$t("settings.configure_instance", {
-              instance: this.instanceName,
-            }),
-            description: this.$t("common.processing"),
-            eventId,
-          },
-        })
-      );
-      const err = res[0];
-
-      if (err) {
-        console.error(`error creating task ${taskAction}`, err);
-        this.error.configureModule = this.getErrorMessage(err);
-        this.loading.configureModule = false;
-        return;
-      }
-    },
-    configureModuleAborted(taskResult, taskContext) {
-      console.error(`${taskContext.action} aborted`, taskResult);
-      this.error.configureModule = this.$t("error.generic_error");
-      this.loading.configureModule = false;
-    },
-    configureModuleCompleted() {
-      this.loading.configureModule = false;
-
-      // reload configuration
-      this.getConfiguration();
+      this.loading.save = false;
     },
   },
 };
@@ -273,4 +320,8 @@ export default {
 
 <style scoped lang="scss">
 @import "../styles/carbon-utils";
+.validation-error {
+  color: $danger-01;
+  font-size: 0.75rem;
+}
 </style>

@@ -1,12 +1,14 @@
 #!/bin/bash
 
 #
-# Copyright (C) 2023 Nethesis S.r.l.
+# Copyright (C) 2026 Dan Brown
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
-# If the control reaches this step, the service can be enabled and started
+set -e
+exec 1>&2
 
-touch smarthost.env
-
-systemctl --user enable --now powerdns.service
+# pdns.conf is rendered at each start, so a restart applies the new settings.
+systemctl --user enable powerdns.service powerdns-reconcile.timer
+systemctl --user restart powerdns.service
+systemctl --user start powerdns-reconcile.timer

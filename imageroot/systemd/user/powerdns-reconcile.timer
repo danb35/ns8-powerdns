@@ -1,0 +1,16 @@
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Catalog members need their transfer key set (DESIGN 6.2), and a primary copy
+# leaves standby when the other primary is gone (DESIGN 10).
+[Unit]
+Description=Reconcile PowerDNS replication state every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

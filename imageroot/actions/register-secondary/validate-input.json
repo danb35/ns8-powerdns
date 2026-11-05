@@ -1,0 +1,36 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "register-secondary input",
+    "$id": "http://schema.nethserver.org/powerdns/register-secondary-input.json",
+    "description": "Role replica. Add a secondary and return its transfer key",
+    "type": "object",
+    "required": [
+        "module_id",
+        "address"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "module_id": {
+            "type": "string",
+            "minLength": 1
+        },
+        "address": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The secondary's VPN address"
+        },
+        "ns_name": {
+            "type": "string"
+        },
+        "advertise": {
+            "type": "boolean"
+        },
+        "addresses": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Its public addresses, shown as glue"
+        }
+    }
+}

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Create the gsqlite3 database from the schema shipped in the image, once.
+
+set -e
+
+mkdir -p pdns
+if [[ ! -s pdns/pdns.sqlite3 ]]; then
+    podman run --rm --user=0:0 --volume="${PWD}/pdns:/var/lib/powerdns:Z" --entrypoint=/bin/sh "${PDNS_AUTH_50_IMAGE}" \
+        -c 'sqlite3 /var/lib/powerdns/pdns.sqlite3 < /usr/local/share/doc/pdns/schema.sqlite3.sql'
+fi

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Runs after the core's 10restore put the backed up files in state/. A primary's
+# DNSSEC keys are in the database, so the DS at the registrar stays valid. A
+# secondary's backup has an empty file: it transfers its zones again.
+
+set -e
+exec 1>&2
+cat >/dev/null # ignore the request
+
+mkdir -p pdns
+if [[ -s pdns.sqlite3.backup ]]; then
+    rm -f pdns/pdns.sqlite3 pdns/pdns.sqlite3-wal pdns/pdns.sqlite3-shm pdns/pdns.sqlite3-journal
+    mv -v pdns.sqlite3.backup pdns/pdns.sqlite3
+else
+    rm -f pdns.sqlite3.backup
+fi
+# The copy may coexist with the original until reconcile sees otherwise (DESIGN 10).
+if grep -q '^POWERDNS_ROLE=primary$' environment; then
+    touch standby
+fi

@@ -1,0 +1,90 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "get-dns-status output",
+    "$id": "http://schema.nethserver.org/powerdns/get-dns-status-output.json",
+    "description": "Per-zone serials, replication lag and standby state, for the Status page",
+    "type": "object",
+    "required": [
+        "role",
+        "configured",
+        "standby",
+        "service_active",
+        "zones",
+        "secondaries",
+        "other_primaries",
+        "api_ready"
+    ],
+    "properties": {
+        "role": {
+            "type": "string"
+        },
+        "configured": {
+            "type": "boolean"
+        },
+        "standby": {
+            "type": "boolean"
+        },
+        "service_active": {
+            "type": "boolean"
+        },
+        "api_ready": {
+            "type": "boolean"
+        },
+        "zones": {
+            "type": "array"
+        },
+        "secondaries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "module_id",
+                    "address",
+                    "ns_name",
+                    "advertise",
+                    "reachable",
+                    "zones_total",
+                    "zones_behind"
+                ],
+                "properties": {
+                    "module_id": {
+                        "type": "string"
+                    },
+                    "address": {
+                        "type": "string"
+                    },
+                    "ns_name": {
+                        "type": "string"
+                    },
+                    "advertise": {
+                        "type": "boolean"
+                    },
+                    "reachable": {
+                        "type": "boolean"
+                    },
+                    "zones_total": {
+                        "type": "integer"
+                    },
+                    "zones_behind": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "other_primaries": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "primary_reachable": {
+            "type": [
+                "boolean",
+                "null"
+            ]
+        }
+    }
+}
