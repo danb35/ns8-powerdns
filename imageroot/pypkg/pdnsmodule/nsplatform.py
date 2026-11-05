@@ -194,29 +194,48 @@ def addresses_held(values, vpn):
 
 # --- dnshelper (DESIGN 8.3) -------------------------------------------------
 
-def dnshelper_module():
+def dnshelper_modules(rdb=None):
+    """Every dnshelper instance in the cluster. Any of them may have adopted this primary's zones."""
+    nodes = (rdb or redis()).hgetall('cluster/module_node')
+    return sorted((m for m in nodes if re.fullmatch(r'dnshelper[0-9]+', m)), key=lambda m: int(m[9:]))
+
+
+def dnshelper_module(rdb=None):
+    """The cluster's default dnshelper, or else the first one installed."""
     try:
         agent_id = agent.resolve_agent_id('dnshelper@cluster')
     except Exception:
-        return None
-    return agent_id.removeprefix('module/') if agent_id else None
+        agent_id = None
+    if agent_id:
+        return agent_id.removeprefix('module/')
+    modules = dnshelper_modules(rdb)
+    return modules[0] if modules else None
 
 
-def managed_by_dnshelper(zone):
-    """Ask dnshelper. No answer means not managed: a removed dnshelper must not lock zones."""
-    module_id = dnshelper_module()
-    if not module_id:
-        return False
+def _dnshelper_manages(module_id, zone):
     try:
         response = agent.tasks.run('module/' + module_id, action='has-zone', data={'name': dnsutil.display(zone)},
                                    extra={'isNotificationHidden': True})
     except Exception as e:
-        log('has-zone failed: %s' % e, agent.SD_WARNING)
+        log('has-zone on %s failed: %s' % (module_id, e), agent.SD_WARNING)
         return False
     if response.get('exit_code') != 0:
         return False
     output = response.get('output') or {}
     return bool(output.get('managed')) and dnsutil.canonical(output.get('zone') or '') == dnsutil.canonical(zone)
+
+
+def zone_manager(zone, rdb=None):
+    """The dnshelper instance that manages the zone, or None.
+
+    Every instance is asked, not only the cluster default. No answer means not managed: a removed
+    dnshelper must not lock zones.
+    """
+    return next((m for m in dnshelper_modules(rdb) if _dnshelper_manages(m, zone)), None)
+
+
+def managed_by_dnshelper(zone):
+    return zone_manager(zone) is not None
 
 
 # --- replication, secondary side (DESIGN 6.2) -------------------------------

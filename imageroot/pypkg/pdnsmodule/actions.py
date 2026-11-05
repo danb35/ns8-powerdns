@@ -205,8 +205,9 @@ def get_records(request):
     _require_configured(values)
     zone = request['zone']
     is_primary = values['POWERDNS_ROLE'] == 'primary'
-    managed = ns.managed_by_dnshelper(zone) if is_primary else False
-    dnshelper = ns.dnshelper_module()
+    manager = ns.zone_manager(zone) if is_primary else None
+    managed = manager is not None
+    dnshelper = manager or ns.dnshelper_module()
     return {
         'zone': zone,
         'records': core.get_records(ns.api_client(values), zone),

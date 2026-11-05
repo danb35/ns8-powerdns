@@ -387,8 +387,12 @@ These are changes to dnshelper, tracked there.
 
 - While dnshelper manages a zone, the powerdns record actions (`set-records`, `delete-records`)
   refuse with `managed_by_dnshelper`.
-- "Managed" is decided by asking dnshelper `has-zone` (role `dnsreader`). If dnshelper does not
-  answer, writes are allowed again: a removed dnshelper must not leave zones uneditable.
+- "Managed" is decided by asking every dnshelper instance `has-zone` (role `dnsreader`), not
+  only the cluster default: any instance with the newer code adopts the primary's zones. The first
+  one that manages the zone is the target of the Records page's deep link. An instance that does
+  not answer counts as not managing it: a removed dnshelper must not leave zones uneditable.
+  **Verified (two-node test):** with `dnshelper1` (0.4.6) as the default and `dnshelper3` adopting,
+  asking only the default let edits through.
 - Apex NS and SOA are written only by powerdns, which matches dnshelper's rule never to change
   them.
 
@@ -428,10 +432,14 @@ Records in the powerdns actions use dnshelper's shape (`name` relative to the zo
 ### 9.3 Authorizations declared in `build-images.sh`
 
 ```
-org.nethserver.authorizations=node:fwadm powerdns@any:replica dnshelper@cluster:dnsreader
+org.nethserver.authorizations=node:fwadm powerdns@any:replica dnshelper@any:dnsreader
 ```
 
-`dnshelper@cluster:dnsreader` is used only for `has-zone` (§8.3). **Verified (source):** a module
+`dnshelper@any:dnsreader` is used only for `has-zone` (§8.3). It must be `@any`:
+`dnshelper@cluster` grants the role on the default instance only, so the other instances refuse
+the call.
+
+**Verified (source):** a module
 can declare a role on another instance of its own module: `powerdns@any` becomes the pattern
 `module/powerdns*`. Exercised between two nodes.
 
@@ -525,8 +533,7 @@ variable restored by `06copyenv`.
 
 ## 12. Open items
 
-1. The dnshelper side of §8.2, and the integration test in §11 that depends on it.
-2. A manual DNSSEC key-roll action, for a later version.
+1. A manual DNSSEC key-roll action, for a later version.
 
 ## 13. Community requests (for the release announcement)
 
