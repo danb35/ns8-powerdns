@@ -1,100 +1,103 @@
-# ns8-kickstart
+# ns8-powerdns
 
-This is a template module for [NethServer 8](https://github.com/NethServer/ns8-core).
-To start a new module from it:
+An authoritative DNS server for [NethServer 8](https://github.com/NethServer/ns8-core), built on
+[PowerDNS Authoritative](https://doc.powerdns.com/authoritative/). It hosts zones, signs them with
+DNSSEC, and replicates them to secondary instances on other nodes of the cluster.
 
-1. Click on [Use this template](https://github.com/NethServer/ns8-kickstart/generate).
-   Name your repo with `ns8-` prefix (e.g. `ns8-mymodule`). 
-   Do not end your module name with a number, like ~~`ns8-baaad2`~~!
+It works on its own, with a basic Records page, and is designed to be driven by
+[ns8-dnshelper](https://github.com/danb35/ns8-dnshelper), which adopts its zones automatically. That
+adoption needs changes in dnshelper, listed in [DESIGN.md](DESIGN.md) section 8.2.
 
-1. Clone the repository, enter the cloned directory and
-   [configure your GIT identity](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup#_your_identity)
+The server is authoritative only. It never recurses or forwards, so it cannot be an open resolver;
+LAN name resolution stays with dnsmasq or the Samba DC.
 
-1. Rename some references inside the repo:
-   ```
-   modulename=$(basename $(pwd) | sed 's/^ns8-//')
-   git mv imageroot/systemd/user/kickstart.service imageroot/systemd/user/${modulename}.service
-   git mv tests/kickstart.robot tests/${modulename}.robot
-   sed -i "s/kickstart/${modulename}/g" $(find .github/ .devcontainer/ * -type f)
-   git commit -a -m "Repository initialization"
-   ```
-
-1. Edit this `README.md` file, by replacing this section with your module
-   description
-
-1. Adjust `.github/workflows` to your needs. `clean-registry.yml` might
-   need the proper list of image names to work correctly. Unused workflows
-   can be disabled from the GitHub Actions interface.
-
-1. Commit and push your local changes
+See [DESIGN.md](DESIGN.md) for the design and [docs/VERIFY.md](docs/VERIFY.md) for what was verified
+and how, including where testing changed the design.
 
 ## Install
 
-Instantiate the module with:
+    add-module ghcr.io/danb35/powerdns:latest 1
 
-    add-module ghcr.io/nethserver/kickstart:latest 1
-
-The output of the command will return the instance name.
-Output example:
-
-    {"module_id": "kickstart1", "image_name": "kickstart", "image_url": "ghcr.io/nethserver/kickstart:latest"}
+The output names the instance, for example `powerdns1`. At most one instance runs per node, because
+two would compete for port 53.
 
 ## Configure
 
-Let's assume that the kickstart instance is named `kickstart1`.
+Each instance is either the cluster's only **primary** or a **secondary** of it. The role cannot be
+changed later: remove the instance and install it again.
 
-Launch `configure-module`, by setting the following parameters:
-- `<MODULE_PARAM1_NAME>`: <MODULE_PARAM1_DESCRIPTION>
-- `<MODULE_PARAM2_NAME>`: <MODULE_PARAM2_DESCRIPTION>
-- ...
+`configure-module` takes:
 
-Example:
+- `role`: `primary` or `secondary`;
+- `ns_name`: the public host name this instance answers as, such as `ns1.example.com`;
+- `advertise`: whether to list this instance in the apex NS of every zone (default `true`);
+- `listen_addresses`: node addresses to serve DNS on. The cluster VPN address is always added;
+- `hostmaster`: the SOA contact, required on a primary;
+- `soa_refresh`, `soa_retry`, `soa_expire`, `soa_minimum`: module-wide SOA timers, in seconds;
+- `primary`: on a secondary, the module UUID of the primary (`get-configuration` lists it).
 
-    api-cli run module/kickstart1/configure-module --data '{}'
+Install and configure the primary first:
 
-The above command will:
-- start and configure the kickstart instance
-- (describe configuration process)
-- ...
+    api-cli run module/powerdns1/get-configuration
+    api-cli run module/powerdns1/configure-module --data '{"role":"primary","ns_name":"ns1.example.com","hostmaster":"hostmaster@example.com","listen_addresses":["192.0.2.1"]}'
 
-Send a test HTTP request to the kickstart backend service:
+`get-configuration` reports whether port 53 is free on each address. Samba DC, dnsmasq, Pi-hole and
+AdGuard Home may already hold it. Zones are managed from the UI or with `add-zone`, `update-zone` and
+`remove-zone`:
 
-    curl http://127.0.0.1/kickstart/
+    api-cli run module/powerdns1/add-zone --data '{"zone":"example.com","dnssec":true}'
+    api-cli run module/powerdns1/get-zone --data '{"zone":"example.com"}'
 
-## Smarthost setting discovery
+`get-zone` returns the DS record to give your registrar. If an NS name lies inside the zone, `add-zone`
+says so and lists the addresses for the glue records, which also go to the registrar.
 
-Some configuration settings, like the smarthost setup, are not part of the
-`configure-module` action input: they are discovered by looking at some
-Redis keys.  To ensure the module is always up-to-date with the
-centralized [smarthost
-setup](https://nethserver.github.io/ns8-core/core/smarthost/) every time
-kickstart starts, the command `bin/discover-smarthost` runs and refreshes
-the `state/smarthost.env` file with fresh values from Redis.
+## Replication
 
-Furthermore if smarthost setup is changed when kickstart is already
-running, the event handler `events/smarthost-changed/10reload_services`
-restarts the main module service.
+A new secondary registers with the primary and receives its own TSIG key. It learns the zones from a
+catalog zone (RFC 9432), so new and removed zones reach it without any action. Transfers need that key:
+no address is allowed to transfer a zone without one. All replication travels over the cluster VPN.
 
-See also the `systemd/user/kickstart.service` file.
+A record change reaches the secondaries within about ten seconds. A new zone takes up to a minute
+more, because a timer on the secondary gives each new zone its transfer key.
 
-This setting discovery is just an example to understand how the module is
-expected to work: it can be rewritten or discarded completely.
+If a secondary was removed while the primary was unreachable, remove its entry from the Replication
+page.
+
+## Backup, clone and move
+
+A primary's backup holds a consistent copy of the database, including the DNSSEC keys, so the DS at
+the registrar stays valid after a restore. A secondary's backup holds its configuration only, and it
+transfers its zones again.
+
+A clone or restore of a primary starts in **standby** while another primary exists: it serves its
+zones but takes no changes. It takes over within a minute of the other primary being removed, which is
+also how a move works. Secondaries and dnshelper then follow it by themselves.
 
 ## Uninstall
 
-To uninstall the instance:
+    remove-module --no-preserve powerdns1
 
-    remove-module --no-preserve kickstart1
+Removing a primary leaves its secondaries serving the last copy of the zones.
 
-## Running tests locally
+## Development
 
-This module uses the NS8 standard testing infrastructure. For instructions on how to run the test suite locally, refer to the [Running tests locally](https://github.com/NethServer/ns8-github-actions/blob/v1/README.md#running-tests-locally) section of the ns8-github-actions README.
+Python unit and live tests, against real PowerDNS servers in Docker:
+
+```bash
+python3 -m unittest discover -s tests/unit -v
+```
+
+The end-to-end suite is in `tests/powerdns.robot`, with the NS8 standard
+[testing infrastructure](https://github.com/NethServer/ns8-github-actions/blob/v1/README.md#running-tests-locally).
+Its `ui`-tagged cases take screenshots of every page. They run when `ui/` or `build-images.sh` changes,
+which includes Renovate's pull requests, or on demand with the `ui_tests` input of the "Test module"
+workflow. The images go to the `ci-screenshots` branch.
+
+Releases: tags are plain semver without a `v`, annotated, on a commit whose checks all passed. To have
+[ns8-repomd](https://github.com/danb35/ns8-repomd) rebuild at once, set the `REPOMD_DISPATCH_TOKEN`
+secret; without it the release appears at the next scheduled build.
 
 ## UI translation
 
-Translated with [Weblate](https://hosted.weblate.org/projects/ns8/).
-
-To setup the translation process:
-
-- add [GitHub Weblate app](https://docs.weblate.org/en/latest/admin/code-hosting.html#code-hosting-github-notifications) to your repository
-- add your repository to [hosted.weblate.org](https://hosted.weblate.org) or ask a NethServer developer to add it to ns8 Weblate project
+Edit only `ui/public/i18n/en/translation.json`. Other languages are translated with
+[Weblate](https://hosted.weblate.org/projects/ns8/).

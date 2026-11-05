@@ -1,0 +1,40 @@
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+#
+# PowerDNS Authoritative. Host networking keeps clients' real source addresses, which
+# PowerDNS needs to check NOTIFY (DESIGN 4.2); NS8 sets ip_unprivileged_port_start=23,
+# so a rootless container can bind 53. Root in the container is the module's own Unix
+# user on the host, which owns state/.
+#
+[Unit]
+Description=PowerDNS Authoritative server
+
+[Service]
+Environment=PODMAN_SYSTEMD_UNIT=%n
+EnvironmentFile=%E/state/environment
+WorkingDirectory=%E/state
+Restart=always
+ExecStartPre=/bin/rm -f %t/powerdns.pid %t/powerdns.ctr-id
+ExecStartPre=runagent render-config
+ExecStartPre=runagent init-db
+ExecStart=/usr/bin/podman run \
+    --detach \
+    --conmon-pidfile=%t/powerdns.pid \
+    --cidfile=%t/powerdns.ctr-id \
+    --cgroups=no-conmon \
+    --replace --name=%N \
+    --network=host \
+    --user=0:0 \
+    --volume=%E/state/pdns:/var/lib/powerdns:Z \
+    --volume=%E/state/pdns.conf:/etc/powerdns/pdns.conf:Z,ro \
+    ${PDNS_AUTH_50_IMAGE}
+ExecStop=/usr/bin/podman stop --ignore --cidfile %t/powerdns.ctr-id -t 10
+ExecStopPost=/usr/bin/podman rm --ignore -f --cidfile %t/powerdns.ctr-id
+PIDFile=%t/powerdns.pid
+Type=forking
+
+[Install]
+WantedBy=default.target

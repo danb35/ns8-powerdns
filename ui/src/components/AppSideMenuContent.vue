@@ -22,6 +22,27 @@
         <span>{{ $t("status.title") }}</span>
       </cv-side-nav-link>
       <cv-side-nav-link
+        @click="goToAppPage(instanceName, 'zones')"
+        :class="{ 'current-page': isLinkActive('zones') }"
+      >
+        <template v-slot:nav-icon><Application20 /></template>
+        <span>{{ $t("zones.title") }}</span>
+      </cv-side-nav-link>
+      <cv-side-nav-link
+        @click="goToAppPage(instanceName, 'records')"
+        :class="{ 'current-page': isLinkActive('records') }"
+      >
+        <template v-slot:nav-icon><List20 /></template>
+        <span>{{ $t("records.title") }}</span>
+      </cv-side-nav-link>
+      <cv-side-nav-link
+        @click="goToAppPage(instanceName, 'replication')"
+        :class="{ 'current-page': isLinkActive('replication') }"
+      >
+        <template v-slot:nav-icon><Network20 /></template>
+        <span>{{ $t("replication.title") }}</span>
+      </cv-side-nav-link>
+      <cv-side-nav-link
         @click="goToAppPage(instanceName, 'settings')"
         :class="{ 'current-page': isLinkActive('settings') }"
       >
@@ -43,6 +64,9 @@
 import Settings20 from "@carbon/icons-vue/es/settings/20";
 import Information20 from "@carbon/icons-vue/es/information/20";
 import Activity20 from "@carbon/icons-vue/es/activity/20";
+import Application20 from "@carbon/icons-vue/es/application/20";
+import List20 from "@carbon/icons-vue/es/list/20";
+import Network20 from "@carbon/icons-vue/es/network--1/20";
 import { mapState } from "vuex";
 import { QueryParamService, UtilService } from "@nethserver/ns8-ui-lib";
 
@@ -52,6 +76,9 @@ export default {
     Settings20,
     Information20,
     Activity20,
+    Application20,
+    List20,
+    Network20,
   },
   mixins: [QueryParamService, UtilService],
   data() {

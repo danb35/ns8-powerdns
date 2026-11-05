@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+set -e
+exec 1>&2
+
+# Roles other modules acquire through their image label (DESIGN 9.2):
+#   powerdns@any:replica      other powerdns instances
+#   powerdns@any:dnsprovider  dnshelper
+redis-exec SADD "${AGENT_ID}/roles/replica" register-secondary unregister-secondary
+redis-exec SADD "${AGENT_ID}/roles/dnsprovider" get-provider-config list-zones

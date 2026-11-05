@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Write state/pdns.conf before each start. The VPN address, the port and the node's
+# addresses can differ from the last start after a clone, move or restore. If the
+# Redis replica cannot be read, start with the last good file rather than not at all.
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pypkg'))
+
+import agent
+
+from pdnsmodule import config, nsplatform
+
+values = config.env()
+role = values.get('POWERDNS_ROLE')
+conf = config.path('pdns.conf')
+try:
+    rdb = agent.redis_connect(use_replica=True)
+    vpn = nsplatform.vpn_address(rdb)
+    network = nsplatform.cluster_network(rdb)
+    agent.assert_exp(vpn and network)
+    wanted = config.listen_addresses(values)
+    available = nsplatform.node_addresses()
+    for missing in [a for a in wanted if a not in available]:
+        # PowerDNS would refuse to start on an address the node does not have.
+        print(agent.SD_WARNING + 'powerdns: listen address %s is not on this node, skipped' % missing, file=sys.stderr)
+    addresses = [a for a in wanted if a in available] + [vpn]
+    content = config.render_pdns_conf(role, addresses, vpn, network, os.environ['TCP_PORT'],
+                                      config.secrets()['PDNS_API_KEY'], values.get('PRIMARY_ADDRESS', ''))
+except Exception as e:
+    if not os.path.exists(conf):
+        raise
+    print(agent.SD_WARNING + 'powerdns: keeping the existing pdns.conf: %s' % e, file=sys.stderr)
+else:
+    config.write_private(conf, content)

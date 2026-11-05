@@ -1,0 +1,63 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "update-zone output",
+    "$id": "http://schema.nethserver.org/powerdns/update-zone-output.json",
+    "description": "Change DNSSEC settings and SOA overrides of a zone",
+    "type": "object",
+    "required": [
+        "zone",
+        "kind",
+        "serial",
+        "dnssec",
+        "ds_records"
+    ],
+    "properties": {
+        "zone": {
+            "type": "string"
+        },
+        "kind": {
+            "type": "string"
+        },
+        "serial": {
+            "type": "integer"
+        },
+        "dnssec": {
+            "type": "boolean"
+        },
+        "denial": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "ds_records": {
+            "type": "array",
+            "description": "SHA-256 DS records for the registrar",
+            "items": {
+                "type": "string"
+            }
+        },
+        "glue": {
+            "type": "array",
+            "description": "NS names inside the zone: the registrar needs glue for them",
+            "items": {
+                "type": "object",
+                "required": [
+                    "ns_name",
+                    "addresses"
+                ],
+                "properties": {
+                    "ns_name": {
+                        "type": "string"
+                    },
+                    "addresses": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

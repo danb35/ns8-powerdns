@@ -39,6 +39,63 @@
         />
       </cv-column>
     </cv-row>
+    <cv-row v-if="dns.standby">
+      <cv-column>
+        <NsInlineNotification
+          kind="warning"
+          :title="$t('dns_status.standby_title')"
+          :description="
+            $t('dns_status.standby', { other: dns.other_primaries.join(', ') })
+          "
+          :showCloseButton="false"
+        />
+      </cv-column>
+    </cv-row>
+    <cv-row v-else-if="dns.other_primaries && dns.other_primaries.length">
+      <cv-column>
+        <NsInlineNotification
+          kind="warning"
+          :title="$t('dns_status.two_primaries_title')"
+          :description="
+            $t('dns_status.two_primaries', {
+              other: dns.other_primaries.join(', '),
+            })
+          "
+          :showCloseButton="false"
+        />
+      </cv-column>
+    </cv-row>
+    <cv-row v-if="dns.configured === false">
+      <cv-column>
+        <NsInlineNotification
+          kind="info"
+          :title="$t('dns_status.not_configured_title')"
+          :description="$t('dns_status.not_configured')"
+          :actionLabel="$t('settings.title')"
+          :showCloseButton="false"
+          @action="goToAppPage(instanceName, 'settings')"
+        />
+      </cv-column>
+    </cv-row>
+    <cv-row v-if="dns.configured">
+      <cv-column>
+        <h4 class="mg-bottom-md">
+          {{ $t("dns_status.role_" + dns.role) }}
+        </h4>
+        <cv-tile light class="mg-bottom-md">
+          <div v-if="!dns.zones.length">{{ $t("zones.no_zones") }}</div>
+          <cv-data-table v-else :columns="dnsColumns">
+            <template slot="data">
+              <cv-data-table-row v-for="z in dns.zones" :key="z.zone">
+                <cv-data-table-cell>{{ z.zone }}</cv-data-table-cell>
+                <cv-data-table-cell>{{ z.serial }}</cv-data-table-cell>
+                <cv-data-table-cell>{{ zoneLag(z) }}</cv-data-table-cell>
+              </cv-data-table-row>
+            </template>
+          </cv-data-table>
+        </cv-tile>
+      </cv-column>
+    </cv-row>
     <cv-row>
       <cv-column :md="4" :max="4">
         <NsInfoCard
@@ -279,6 +336,7 @@ export default {
   },
   data() {
     return {
+      dns: {},
       q: {
         page: "status",
       },
@@ -306,6 +364,13 @@ export default {
     };
   },
   computed: {
+    dnsColumns() {
+      return [
+        this.$t("zones.zone"),
+        this.$t("zones.serial"),
+        this.$t("replication.state"),
+      ];
+    },
     ...mapState(["instanceName", "instanceLabel", "core", "appName"]),
     installationNodeTitle() {
       if (this.status && this.status.node) {
@@ -346,10 +411,51 @@ export default {
     clearTimeout(this.redirectTimeout);
   },
   created() {
+    this.getDnsStatus();
     this.getStatus();
     this.listBackupRepositories();
   },
   methods: {
+    getDnsStatus() {
+      const eventId = this.getUuid();
+      const taskAction = "get-dns-status";
+      this.core.$root.$once(
+        `${taskAction}-completed-${eventId}`,
+        (taskContext, taskResult) => {
+          this.dns = taskResult.output;
+        }
+      );
+      this.createModuleTaskForApp(this.instanceName, {
+        action: taskAction,
+        extra: {
+          title: this.$t("action." + taskAction),
+          isNotificationHidden: true,
+          eventId,
+        },
+      }).catch((err) =>
+        console.error(`error creating task ${taskAction}`, err)
+      );
+    },
+    zoneLag(z) {
+      if (this.dns.role === "primary") {
+        if (!(this.dns.secondaries || []).length) {
+          return this.$t("dns_status.no_secondaries");
+        }
+        const behind = (this.dns.secondaries || []).filter((s) =>
+          s.zones_behind.includes(z.zone)
+        );
+        return behind.length
+          ? this.$t("dns_status.behind", {
+              modules: behind.map((s) => s.module_id).join(", "),
+            })
+          : this.$t("replication.in_sync");
+      }
+      return z.primary_serial === z.serial
+        ? this.$t("replication.in_sync")
+        : this.$t("dns_status.primary_serial", {
+            serial: z.primary_serial === null ? "?" : z.primary_serial,
+          });
+    },
     async getStatus() {
       this.loading.getStatus = true;
       this.error.getStatus = "";

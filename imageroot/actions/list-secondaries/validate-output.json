@@ -1,0 +1,54 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "list-secondaries output",
+    "$id": "http://schema.nethserver.org/powerdns/list-secondaries-output.json",
+    "description": "Registered secondaries, with replication lag",
+    "type": "object",
+    "required": [
+        "secondaries"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "secondaries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "module_id",
+                    "address",
+                    "ns_name",
+                    "advertise",
+                    "reachable",
+                    "zones_total",
+                    "zones_behind"
+                ],
+                "properties": {
+                    "module_id": {
+                        "type": "string"
+                    },
+                    "address": {
+                        "type": "string"
+                    },
+                    "ns_name": {
+                        "type": "string"
+                    },
+                    "advertise": {
+                        "type": "boolean"
+                    },
+                    "reachable": {
+                        "type": "boolean"
+                    },
+                    "zones_total": {
+                        "type": "integer"
+                    },
+                    "zones_behind": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

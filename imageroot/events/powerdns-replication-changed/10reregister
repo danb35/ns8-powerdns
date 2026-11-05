@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.environ['AGENT_INSTALL_DIR'], 'pypkg'))
+
+# A primary changed address or came back from a restore (DESIGN 10). There is one
+# primary per cluster, so any live one is ours; reconcile re-registers if needed.
+import json
+
+from pdnsmodule import config, nsplatform
+
+event = json.load(sys.stdin)
+values = config.env()
+if values.get('POWERDNS_ROLE') == 'secondary' and event.get('module_id') != os.environ['MODULE_ID']:
+    secrets = config.secrets()
+    if secrets.get('TSIG_KEY_OWNER'):
+        # Force a registration, since a restored primary may have lost our key.
+        config.write_secrets({'TSIG_KEY_OWNER': ''})
+    nsplatform.reconcile(values)

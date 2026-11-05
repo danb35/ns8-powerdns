@@ -1,0 +1,17 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "remove-secondary input",
+    "$id": "http://schema.nethserver.org/powerdns/remove-secondary-input.json",
+    "description": "Remove a stale secondary entry and revoke its key",
+    "type": "object",
+    "required": [
+        "module_id"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "module_id": {
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}

@@ -1,8 +1,86 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "get-configuration output",
-    "$id": "http://schema.nethserver.org/kickstart/get-configuration-output.json",
-    "description": "Get kickstart configuration",
-    "examples": [],
-    "type": "object"
+    "$id": "http://schema.nethserver.org/powerdns/get-configuration-output.json",
+    "description": "Current configuration, node addresses with port 53 availability, the primary if any, and dnshelper",
+    "type": "object",
+    "required": [
+        "configured",
+        "role",
+        "ns_name",
+        "advertise",
+        "listen_addresses",
+        "node_addresses",
+        "primaries",
+        "dnshelper"
+    ],
+    "properties": {
+        "configured": {
+            "type": "boolean"
+        },
+        "role": {
+            "type": "string"
+        },
+        "ns_name": {
+            "type": "string"
+        },
+        "advertise": {
+            "type": "boolean"
+        },
+        "listen_addresses": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "missing_addresses": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "hostmaster": {
+            "type": "string"
+        },
+        "soa_refresh": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_retry": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_expire": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "soa_minimum": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "primary": {
+            "type": "string"
+        },
+        "vpn_address": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "standby": {
+            "type": "boolean"
+        },
+        "node_addresses": {
+            "type": "array"
+        },
+        "vpn_port": {
+            "type": "object"
+        },
+        "primaries": {
+            "type": "array"
+        },
+        "dnshelper": {
+            "type": "object"
+        }
+    }
 }

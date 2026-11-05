@@ -1,0 +1,18 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "get-records input",
+    "$id": "http://schema.nethserver.org/powerdns/get-records-input.json",
+    "description": "Records of a zone, and whether this module may edit them",
+    "type": "object",
+    "required": [
+        "zone"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "zone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Zone name, like example.com"
+        }
+    }
+}

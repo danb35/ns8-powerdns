@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.environ['AGENT_INSTALL_DIR'], 'pypkg'))
+
+# Runs after the core's 10recvstate copied the state here. The firewall service
+# is per node, and the source may have opened it on another node.
+import agent
+
+from pdnsmodule import actions, config
+
+if config.env().get('POWERDNS_ROLE'):
+    actions.enter_standby_if_primary()
+    agent.assert_exp(agent.add_public_service(os.environ['MODULE_ID'], ['53/tcp', '53/udp'], replace_ports=True))
