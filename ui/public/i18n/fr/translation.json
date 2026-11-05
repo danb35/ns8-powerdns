@@ -147,6 +147,8 @@
         "unreachable": "Injoignable",
         "remove": "Supprimer",
         "removing": "Supprimer la secondaire {module}",
+        "remove_title": "Supprimer la secondaire",
+        "remove_description": "{module} ne répond pas. Son entrée est supprimée, sa clé de transfert est révoquée et son serveur de noms est retiré des enregistrements NS de chaque zone. Ne le faites que pour une secondaire disparue définitivement : une secondaire qui fonctionne se supprime avec son module, dans le Centre logiciel.",
         "on_secondary": "Cette instance est une secondaire",
         "on_secondary_description": "La réplication se gère sur la primaire. Les zones de cette instance et leur état de transfert figurent sur la page Zones."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "Les enregistrements NS et SOA de la zone elle-même sont définis par ce module.",
         "name_outside_zone": "{value} est hors de cette zone.",
         "invalid_record": "PowerDNS a refusé cet enregistrement.",
-        "service_unavailable": "PowerDNS n'est pas en cours d'exécution sur cette instance."
+        "service_unavailable": "PowerDNS n'est pas en cours d'exécution sur cette instance.",
+        "secondary_reachable": "{value} répond encore. Supprimez plutôt son module dans le Centre logiciel."
     }
 }

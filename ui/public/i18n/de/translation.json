@@ -147,6 +147,8 @@
         "unreachable": "Nicht erreichbar",
         "remove": "Entfernen",
         "removing": "Sekundäre Instanz {module} entfernen",
+        "remove_title": "Sekundäre Instanz entfernen",
+        "remove_description": "{module} antwortet nicht. Der Eintrag wird entfernt, der Transferschlüssel widerrufen und der Nameserver aus den NS-Einträgen jeder Zone gestrichen. Tun Sie dies nur für eine sekundäre Instanz, die endgültig weg ist: Eine funktionierende sekundäre Instanz wird mit ihrem Modul im Software Center entfernt.",
         "on_secondary": "Diese Instanz ist sekundär",
         "on_secondary_description": "Die Replikation wird auf der primären Instanz verwaltet. Die Zonen dieser Instanz und ihren Übertragungsstatus finden Sie auf der Seite Zonen."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "Die NS- und SOA-Einträge der Zone selbst werden von diesem Modul gesetzt.",
         "name_outside_zone": "{value} liegt außerhalb dieser Zone.",
         "invalid_record": "PowerDNS hat diesen Eintrag abgelehnt.",
-        "service_unavailable": "PowerDNS läuft auf dieser Instanz nicht."
+        "service_unavailable": "PowerDNS läuft auf dieser Instanz nicht.",
+        "secondary_reachable": "{value} antwortet noch. Entfernen Sie stattdessen das Modul im Software Center."
     }
 }

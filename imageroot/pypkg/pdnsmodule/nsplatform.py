@@ -163,7 +163,10 @@ def node_addresses():
 def _port_free(address, kind):
     family = socket.AF_INET6 if ':' in address else socket.AF_INET
     with socket.socket(family, kind) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Only for TCP, where it skips sockets in TIME_WAIT. On a UDP socket it lets the probe bind
+        # next to another server's reuse-enabled socket (dnsmasq's), so a busy port read as free.
+        if kind == socket.SOCK_STREAM:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((address, 53))
         except OSError as e:

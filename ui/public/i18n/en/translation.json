@@ -147,6 +147,8 @@
         "unreachable": "Unreachable",
         "remove": "Remove",
         "removing": "Remove secondary {module}",
+        "remove_title": "Remove secondary",
+        "remove_description": "{module} does not answer. Its entry is removed, its transfer key is revoked and its name server is dropped from the NS records of every zone. Do this only for a secondary that is gone for good: a working secondary is removed with its module, in the Software center.",
         "on_secondary": "This instance is a secondary",
         "on_secondary_description": "Replication is managed on the primary. See this instance's zones and their transfer state on the Zones page."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "The zone's own NS and SOA records are set by this module.",
         "name_outside_zone": "{value} is outside this zone.",
         "invalid_record": "PowerDNS refused this record.",
-        "service_unavailable": "PowerDNS is not running on this instance."
+        "service_unavailable": "PowerDNS is not running on this instance.",
+        "secondary_reachable": "{value} still answers. Remove its module in the Software center instead."
     }
 }

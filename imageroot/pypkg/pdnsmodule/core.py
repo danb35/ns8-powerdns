@@ -372,21 +372,27 @@ def unregister_secondary(pdns, settings, module_id):
 
 
 def secondaries_status(pdns, settings, query_serial=dnsutil.soa_serial):
-    """Each peer with how many member zones it serves at the primary's serial."""
+    """Each peer with how many member zones it serves at the primary's serial.
+
+    A peer is reachable when it answers for the catalog, which every secondary holds, or for any
+    member zone; with no member zones the catalog alone decides.
+    """
     zones = [(z['name'], z.get('serial', 0), z.get('notified_serial', 0)) for z in member_zones(pdns, settings)]
     out = []
     for peer in load_peers(settings):
         if peer.get('kind') != 'internal':
             continue
-        reachable = True
+        reachable = settings.catalog and query_serial(peer['address'], settings.catalog) is not None
         behind = []
         for name, serial, _notified in zones:
             theirs = query_serial(peer['address'], name)
             if theirs is None:
-                reachable = False
                 behind.append(dnsutil.display(name))
-            elif theirs != serial:
-                behind.append(dnsutil.display(name))
+            else:
+                reachable = True
+                if theirs != serial:
+                    behind.append(dnsutil.display(name))
+        reachable = bool(reachable)
         out.append({'module_id': peer['id'], 'address': peer['address'], 'ns_name': peer.get('ns_name', ''),
                     'advertise': bool(peer.get('advertise')), 'reachable': reachable,
                     'zones_total': len(zones), 'zones_behind': behind})

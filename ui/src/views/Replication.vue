@@ -54,10 +54,11 @@
                 </cv-data-table-cell>
                 <cv-data-table-cell>
                   <NsButton
+                    v-if="!s.reachable"
                     kind="ghost"
                     size="sm"
                     :icon="TrashCan20"
-                    @click="remove(s)"
+                    @click="toRemove = s"
                   >
                     {{ $t("replication.remove") }}
                   </NsButton>
@@ -68,6 +69,25 @@
         </cv-tile>
       </cv-column>
     </cv-row>
+    <NsDangerDeleteModal
+      :isShown="!!toRemove"
+      :name="toRemove ? toRemove.module_id : ''"
+      :title="$t('replication.remove_title')"
+      :warning="core.$t('common.please_read_carefully')"
+      :description="
+        $t('replication.remove_description', {
+          module: toRemove ? toRemove.module_id : '',
+        })
+      "
+      :typeToConfirm="
+        core.$t('common.type_to_confirm', {
+          name: toRemove ? toRemove.module_id : '',
+        })
+      "
+      :isErrorShown="false"
+      @hide="toRemove = null"
+      @confirmDelete="remove"
+    />
   </cv-grid>
 </template>
 
@@ -91,6 +111,7 @@ export default {
       urlCheckInterval: null,
       isSecondary: false,
       secondaries: [],
+      toRemove: null,
       loading: { load: true },
       error: { load: "" },
     };
@@ -146,7 +167,10 @@ export default {
       }
       this.loading.load = false;
     },
-    async remove(s) {
+    async remove() {
+      const s = this.toRemove;
+      this.toRemove = null;
+      if (!s) return;
       try {
         await this.runTask(
           "remove-secondary",
