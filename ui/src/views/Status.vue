@@ -39,7 +39,19 @@
         />
       </cv-column>
     </cv-row>
-    <cv-row v-if="dns.standby">
+    <cv-row v-if="dns.waiting_for && dns.waiting_for.length">
+      <cv-column>
+        <NsInlineNotification
+          kind="warning"
+          :title="$t('dns_status.waiting_title')"
+          :description="
+            $t('dns_status.waiting', { other: dns.waiting_for.join(', ') })
+          "
+          :showCloseButton="false"
+        />
+      </cv-column>
+    </cv-row>
+    <cv-row v-else-if="dns.standby">
       <cv-column>
         <NsInlineNotification
           kind="warning"

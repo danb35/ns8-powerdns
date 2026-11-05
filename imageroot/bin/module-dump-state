@@ -11,6 +11,11 @@
 
 set -e
 
+# Every path in etc/state-include.conf must exist
+if [[ ! -e peers.json ]]; then
+    (umask 077 && echo '{"peers": []}' > peers.json)
+fi
+
 if ! grep -q '^POWERDNS_ROLE=primary$' environment; then
     : > pdns.sqlite3.backup
     exit 0

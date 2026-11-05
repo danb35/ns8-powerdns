@@ -10,5 +10,9 @@ exec 1>&2
 
 # pdns.conf is rendered at each start, so a restart applies the new settings.
 systemctl --user enable powerdns.service powerdns-reconcile.timer
-systemctl --user restart powerdns.service
 systemctl --user start powerdns-reconcile.timer
+if "${AGENT_INSTALL_DIR}/bin/start-blocked"; then
+    echo "powerdns: a copy waits for the other instance on this node to be removed"
+    exit 0
+fi
+systemctl --user restart powerdns.service

@@ -5,19 +5,29 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
+# Run configure-module's steps here rather than through agent.tasks.run(). An
+# instance's role on an agent is a single value and the last grant wins, so
+# powerdns@any:replica, which also matches this instance, can replace the core's
+# self:selfadm. The call would then get a 403, depending on the order of a Redis set.
+
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.environ['AGENT_INSTALL_DIR'], 'pypkg'))
 
-import agent
-import agent.tasks
+from pdnsmodule import actions, config
 
-from pdnsmodule import actions
-
-if not actions.config.env().get('POWERDNS_ROLE'):
+if not config.env().get('POWERDNS_ROLE'):
     sys.exit(0)  # the backup was taken before the first configuration
 
-response = agent.tasks.run('module/' + os.environ['MODULE_ID'], action='configure-module',
-                           data=actions.restore_configure_data())
-agent.assert_exp(response['exit_code'] == 0)
+
+def steps(request):
+    actions.configure_save(request)
+    subprocess.run([os.path.join(os.environ['AGENT_INSTALL_DIR'], 'actions', 'configure-module', '80start_services')],
+                   stdin=subprocess.DEVNULL, check=True)
+    actions.configure_finalize(request)
+
+
+sys.stdin.read()  # the restore request, not configure-module's
+actions.run_with(steps, actions.restore_configure_data())

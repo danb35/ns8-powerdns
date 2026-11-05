@@ -11,6 +11,8 @@ Description=Reconcile PowerDNS replication state every minute
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=1min
+# The default of 1min lets the runs drift to two minutes apart
+AccuracySec=5s
 
 [Install]
 WantedBy=timers.target
