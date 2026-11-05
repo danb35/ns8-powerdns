@@ -65,11 +65,13 @@ class PdnsConf(unittest.TestCase):
         self.assertEqual(conf['send-signed-notify'], 'no')
         self.assertEqual(conf['only-notify'], '')
         self.assertEqual(conf['default-zsk-algorithm'], '')
+        self.assertEqual(conf['security-poll-suffix'], '')
         self.assertNotIn('0.0.0.0', ''.join(conf.values()))
 
     def test_secondary_keeps_its_api_on_loopback(self):
         conf = self.conf('secondary', primary_address='10.5.4.1')
         self.assertEqual(conf['webserver-address'], '127.0.0.1')
+        self.assertEqual(conf['security-poll-suffix'], '')
         self.assertEqual(conf['allow-notify-from'], '10.5.4.1/32')
         self.assertEqual(conf['allow-axfr-ips'], '')
         self.assertNotIn('primary', conf)

@@ -132,6 +132,9 @@ def render_pdns_conf(role, addresses, vpn_address, cluster_network, tcp_port, ap
         'local-address=' + ','.join(addresses),
         # Authoritative only: nothing here may turn it into a resolver.
         'version-string=anonymous',
+        # No security poll: it sends the exact version to the PowerDNS project as a DNS
+        # query, only to log a warning. Updates arrive with module releases.
+        'security-poll-suffix=',
         # The API key is the only thing in this file that is secret.
         'api=yes',
         'webserver=yes',

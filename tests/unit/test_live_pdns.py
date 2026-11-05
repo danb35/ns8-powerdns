@@ -189,6 +189,11 @@ class Replication(unittest.TestCase):
         records = core.get_records(self.p, 'rec.test')
         self.assertIn({'name': '@', 'type': 'TXT', 'ttl': 300, 'data': 'v=spf1 -all'}, records)
         self.assertIn({'name': '@', 'type': 'MX', 'ttl': 300, 'data': '10 mail.rec.test.'}, records)
+        # Quotes and backslashes must survive the API. 5.1.5 refuses the first and drops the
+        # second (PowerDNS/pdns#18159), which is why the module stays on 5.0.
+        quoted = 'a "quoted" word and a back\\slash'
+        core.set_records(self.p, 'rec.test', [{'name': 'q', 'type': 'TXT', 'ttl': 300, 'data': quoted}])
+        self.assertEqual([r['data'] for r in core.get_records(self.p, 'rec.test') if r['name'] == 'q'], [quoted])
         core.delete_records(self.p, 'rec.test', [{'name': 'a', 'type': 'A', 'data': '192.0.2.1'}])
         self.assertEqual([r['data'] for r in core.get_records(self.p, 'rec.test') if r['name'] == 'a'], ['192.0.2.2'])
         core.delete_records(self.p, 'rec.test', [{'name': 'a', 'type': 'A'}])
