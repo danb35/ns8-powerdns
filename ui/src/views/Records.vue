@@ -321,6 +321,6 @@ export default {
 <style scoped lang="scss">
 @import "../styles/carbon-utils";
 .record-data {
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 </style>

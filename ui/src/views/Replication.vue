@@ -28,6 +28,14 @@
             :line-count="3"
           />
           <NsEmptyState
+            v-else-if="isSecondary"
+            :title="$t('replication.on_secondary')"
+          >
+            <template #description>
+              {{ $t("replication.on_secondary_description") }}
+            </template>
+          </NsEmptyState>
+          <NsEmptyState
             v-else-if="!secondaries.length"
             :title="$t('replication.no_secondaries')"
           >
@@ -81,6 +89,7 @@ export default {
     return {
       q: { page: "replication" },
       urlCheckInterval: null,
+      isSecondary: false,
       secondaries: [],
       loading: { load: true },
       error: { load: "" },
@@ -126,6 +135,7 @@ export default {
       this.error.load = "";
       try {
         const config = await this.runTask("get-configuration");
+        this.isSecondary = config.role === "secondary";
         if (config.role === "primary") {
           this.secondaries = (
             await this.runTask("list-secondaries")
