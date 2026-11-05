@@ -91,7 +91,8 @@ The end-to-end suite is in `tests/powerdns.robot`, with the NS8 standard
 [testing infrastructure](https://github.com/NethServer/ns8-github-actions/blob/v1/README.md#running-tests-locally).
 Its `ui`-tagged cases take screenshots of every page. They run when `ui/` or `build-images.sh` changes,
 which includes Renovate's pull requests, or on demand with the `ui_tests` input of the "Test module"
-workflow. The images go to the `ci-screenshots` branch.
+workflow. On a pull request the images go to the `ci-screenshots` branch and are linked from a comment;
+otherwise they are in the run's artifacts.
 
 Releases: tags are plain semver without a `v`, annotated, on a commit whose checks all passed. To have
 [ns8-repomd](https://github.com/danb35/ns8-repomd) rebuild at once, set the `REPOMD_DISPATCH_TOKEN`
