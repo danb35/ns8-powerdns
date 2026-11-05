@@ -152,7 +152,7 @@ Check that a backup can be restored over the running instance
     ...    {"name":"robot","instances":["${module_id}"],"repository":"${repo}[id]","schedule":"daily","schedule_hint":{},"retention":1,"enabled":true}
     Run cluster action    run-backup    {"id":${backup}}
     ${listing} =    Run cluster action    list-backups
-    ${path} =    Evaluate    [i for b in $listing['backups'] if b['id'] == $backup for i in b['instances']][0]['repository_path']
+    ${path} =    Evaluate    [i for b in $listing['backups'] if b['id'] == ${backup} for i in b['instances']][0]['repository_path']
     ${restored} =    Run cluster action    restore-module
     ...    {"repository":"${repo}[id]","path":"${path}","snapshot":"","node":1,"replace":true}
     Should Not Be Equal    ${restored}[module_id]    ${module_id}
