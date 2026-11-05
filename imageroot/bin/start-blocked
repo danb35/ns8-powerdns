@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+
+#
+# Copyright (C) 2026 Dan Brown
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
+# Exit 0 when this instance is a copy that must not start yet. See nsplatform.start_blocked().
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pypkg'))
+
+from pdnsmodule import nsplatform
+
+sys.exit(0 if nsplatform.start_blocked() else 1)

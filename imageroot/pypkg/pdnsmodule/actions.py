@@ -63,6 +63,8 @@ def configure_validate(request):
     for address in request.get('listen_addresses', []):
         if address not in available:
             raise core.ActionError('listen_addresses', 'address_not_on_node', address)
+    if ns.start_blocked(rdb):
+        return primary  # the original holds these addresses until it is removed
     for address in request.get('listen_addresses', []) + [vpn]:
         report = ns.port53_report(address, held)
         if not (report['udp_free'] and report['tcp_free']):
@@ -93,6 +95,9 @@ def configure_save(request):
 
 def configure_finalize(_request):
     values = config.env()
+    if ns.start_blocked():
+        ns.log('waiting for the other instance on this node to be removed')
+        return
     pdns = ns.api_client(values)
     pdns.wait_ready()
     settings = ns.settings(values)
@@ -267,15 +272,20 @@ def get_dns_status(_request):
     values = config.env()
     role = values.get('POWERDNS_ROLE', '')
     result = {'role': role, 'configured': bool(role), 'standby': config.is_standby(), 'service_active': ns.service_active(),
-              'zones': [], 'secondaries': [], 'other_primaries': [], 'primary_reachable': None, 'api_ready': False}
+              'zones': [], 'secondaries': [], 'other_primaries': [], 'primary_reachable': None, 'api_ready': False,
+              'waiting_for': []}
     if not role:
         return result
     rdb = ns.redis()
+    if config.is_copy_pending():
+        result['waiting_for'] = ns.sibling_instances(rdb)
     if role == 'primary':
         result['other_primaries'] = [p['module_id'] for p in ns.other_primaries(rdb)]
         # The status poll also ends a standby, as the reconcile timer does (DESIGN 10).
         ns.reconcile(values)
         result['standby'] = config.is_standby()
+    if result['waiting_for']:
+        return result
     try:
         pdns = ns.api_client(values)
         settings = ns.settings(values)
@@ -314,11 +324,23 @@ def generate_secrets():
         config.write_secrets({'PDNS_API_KEY': pysecrets.token_urlsafe(32)})
 
 
-def enter_standby_if_primary():
+def mark_copy():
     """Clone, move and restore: the copy has the primary's zones and API key (DESIGN 10)."""
     values = config.env()
+    config.set_copy_pending(True)
     if values.get('POWERDNS_ROLE') == 'primary':
         config.set_standby(True)
+
+
+def keep_clone_stopped_if_blocked():
+    """The core starts what the source had enabled. Leave the server to reconcile."""
+    if not ns.start_blocked():
+        return
+    listing = config.path('default-target.clone-module')
+    with open(listing) as fp:
+        units = fp.read().split()
+    with open(listing, 'w') as fp:
+        fp.write(' '.join(u for u in units if u != ns.UNIT) + '\n')
 
 
 def destroy():
@@ -394,7 +416,10 @@ def fail_validation(error):
 def run_step(function, emit=True):
     """Read the request, run the step, print its output; refusals are validation failures."""
     raw = sys.stdin.read().strip()
-    request = json.loads(raw) if raw else {}
+    run_with(function, json.loads(raw) if raw else {}, emit)
+
+
+def run_with(function, request, emit=False):
     try:
         output = function(request)
     except core.ActionError as e:
@@ -402,6 +427,10 @@ def run_step(function, emit=True):
     except ApiError as e:
         print(agent.SD_ERR + 'powerdns: %s' % e, file=sys.stderr)
         sys.exit(1)
+    except OSError as e:
+        # PowerDNS is not answering: stopped, or a copy waiting for its original
+        print(agent.SD_WARNING + 'powerdns: %s' % e, file=sys.stderr)
+        fail_validation(core.ActionError('role', 'service_unavailable', os.environ['MODULE_ID']))
     if emit:
         json.dump(output if output is not None else {}, fp=sys.stdout)
 

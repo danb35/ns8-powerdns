@@ -7,7 +7,8 @@ adopts its zones automatically, and it also works on its own.
 
 Implement with the `nethserver-ns8-module` skill (NethServer/agents). Items marked **VERIFY**
 must be checked against the NS8 developer manual, the PowerDNS documentation or a live node
-before code depends on them; do not assume them.
+before code depends on them; do not assume them. Each one checked so far now states its result,
+marked **Verified**; [docs/VERIFY.md](docs/VERIFY.md) has the evidence and what is still untested.
 
 **Starting point.** Generate the repository from
 [NethServer/ns8-kickstart](https://github.com/NethServer/ns8-kickstart), not
@@ -84,7 +85,8 @@ Each instance is configured as exactly one of:
 - **primary**: holds the zones in gsqlite3, signs them, is the catalog producer, serves the API
   to dnshelper and sends NOTIFY to the secondaries.
 - **secondary**: subscribes to one primary's catalog, transfers every member zone and serves
-  them. It holds no DNSSEC keys and exposes no record-editing API.
+  them. It holds no DNSSEC keys. Its API listens on loopback only, for its own actions (§4.4), so
+  no other module can edit records through it.
 
 `org.nethserver.max-per-node=1`: two instances on one node would fight over port 53.
 
@@ -98,8 +100,8 @@ The error names that module, and the instance's own key does not count. The UI t
 
 - A secondary still names its primary by module UUID. This keeps the data model ready for
   external primaries later (§6.5); it does not mean several cluster primaries.
-- **VERIFY:** that service keys are visible cluster-wide (with `use_replica=True`) at the moment
-  `configure-module` runs on a newly added node.
+- **Verified (source):** a replica may lag on a newly added node, so actions read service keys from
+  the leader and use the local replica only when the leader is down.
 - Two installs racing to become primary at the same moment are not guarded against in v1. The
   second one shows a warning on its Status page once it sees the other key, and §10 covers the
   clone and restore cases.
@@ -125,27 +127,25 @@ and the VPN address.
   against a zone's primaries, so a rewritten address (as rootless port forwarding may produce)
   would make secondaries ignore NOTIFY.
 - It lets PowerDNS bind exactly the addresses chosen, including addresses that appear later.
-- **VERIFY:** that a rootless container with host networking can bind port 53 on an NS8 node.
-  Pi-hole publishes 53 rootless, which suggests `net.ipv4.ip_unprivileged_port_start` allows
-  it. Read the manual pages `rootless_rootfull`, `network` and `port_allocation`.
-- **Fallback if host networking is not workable:** keep port publishing, and
-  - authenticate everything with TSIG (already the plan, §6.3);
-  - set `allow-notify-from` to the address PowerDNS sees for forwarded traffic, or rely on SOA
-    refresh polling with a short refresh interval for the catalog zone.
+- **Verified (node):** a rootless container with host networking binds port 53. NS8 sets
+  `net.ipv4.ip_unprivileged_port_start=23`. Root in the container is the module's own Unix user
+  on the host, which owns `state/`.
 
 ### 4.3 Firewall
 
 - `agent.add_public_service()` opens 53/tcp and 53/udp (authorization `node:fwadm`).
 - The API port is never opened publicly.
-- **VERIFY:** that the node firewall accepts traffic on the WireGuard interface to the API port
-  and to port 53 on the VPN address, without an extra rule.
+- **Verified (manual):** the VPN is the firewall's `trusted` zone, where any connection is allowed,
+  so no extra rule is needed. Confirmed between two nodes.
 
 ### 4.4 API endpoint
 
-The PowerDNS webserver/API listens on the VPN address and 127.0.0.1, on a port obtained from
-`org.nethserver.tcp-ports-demand=1`.
+The PowerDNS webserver/API listens on one address, because `webserver-address` takes a single
+value, on a port obtained from `org.nethserver.tcp-ports-demand=1`. On a primary that is the VPN
+address, and local actions call the API there too. On a secondary it is 127.0.0.1.
 
-- `webserver-allow-from` is limited to 127.0.0.1 and the cluster VPN network.
+- On a primary, `webserver-allow-from` is limited to loopback and the cluster VPN network. On a
+  secondary, to loopback.
 - The traffic is plain HTTP inside WireGuard. The API key travels inside the encrypted tunnel,
   never over a public network. This matches dnshelper's own advice for the PowerDNS provider
   ("a private network").
@@ -192,12 +192,16 @@ DNSSEC is on: a DS record left at the registrar will make the domain fail valida
 ### 6.1 Catalog
 
 - The primary creates a producer catalog zone `catalog.<module_uuid>.invalid` at configure
-  time.
+  time. The name is kept in the configuration, so a copy of the primary keeps it under a new UUID.
+- It is created with SOA serial 1 and no SOA-EDIT-API. PowerDNS raises a producer's serial to the
+  current epoch time when a member changes, so a date-style serial such as `2026110501` would stay
+  higher, and consumers would never see a change.
 - Every zone the module creates is a member (`catalog` property).
-- The catalog is never served publicly, and its name under `.invalid` cannot collide with a
-  real zone.
-- **VERIFY:** that PowerDNS refuses queries for the catalog from outside the VPN, or restrict
-  it with `allow-axfr-ips` and TSIG, so it can only be transferred over the VPN.
+- Its name under `.invalid` cannot collide with a real zone.
+- **Verified (live):** PowerDNS answers normal queries for the catalog from any address, because it
+  has no per-zone query ACL short of views. Listing it takes an AXFR, which needs a key (§6.3).
+  A client who already knows a zone name can derive its member label, and learns only that the zone
+  is hosted here.
 
 ### 6.2 Registering a secondary
 
@@ -207,10 +211,11 @@ primary found through service discovery (there is only one, §3).
 1. In `configure-module` the secondary calls the primary's `register-secondary` action (role
    `replica`, §9.2) with its `module_id`, VPN address, `ns_name` and `advertise` flag.
 2. The primary generates a TSIG key for that secondary (`powerdns-<secondary module id>`,
-   hmac-sha256) and stores it with the API (`tsigkeys`). It allows AXFR of the catalog and of
-   every member zone for that key, and adds the secondary's VPN address to `also-notify`. It
-   updates the apex NS RRsets (§5.2) and returns the key, the primary's VPN address, port and
-   the catalog name.
+   hmac-sha256) and stores it with the API (`tsigkeys`). On the catalog and every member zone it
+   allows AXFR for that key (`TSIG-ALLOW-AXFR`) and adds the secondary's VPN address to the
+   `ALSO-NOTIFY` metadata. The global `also-notify` setting is not used, because changing it would
+   restart the DNS server each time a secondary registers. It updates the apex NS RRsets (§5.2)
+   and returns the key, the primary's VPN address and the catalog name.
 3. The secondary stores the key in its secrets file, creates the consumer zone (`kind:
    Consumer`, primary = the primary's VPN address, transfer key = the key) and retrieves the
    catalog.
@@ -219,30 +224,40 @@ primary found through service discovery (there is only one, §3).
 `destroy-module`, best effort. If the primary is unreachable, the stale entry is shown on the
 primary's Replication page with a Remove button.
 
-**VERIFY:** whether member zones created by a consumer inherit the consumer zone's transfer
-TSIG key (metadata `AXFR-MASTER-TSIG`).
-
-- If they do, nothing else is needed.
-- If not, the secondary must set the key on each new member. Do this in a small reconcile step
-  run by a systemd timer (every minute) and after each catalog transfer: list secondary zones
-  and set the missing metadata.
+**Verified (live):** member zones created by a consumer take its primaries but do not inherit its
+transfer TSIG key (metadata `AXFR-MASTER-TSIG`), so their first transfer is refused. The secondary
+sets the key on each new member in a small reconcile step: it lists secondary zones, sets the missing
+metadata and asks for a transfer, since a refused zone also backs off. It runs when the secondary
+registers, once the catalog has arrived, and from a systemd timer every minute (`AccuracySec=5s`, since
+the default of one minute lets the runs drift two minutes apart). PowerDNS offers no hook on a catalog
+transfer, so for a new zone the timer is the only trigger.
 
 ### 6.3 Security
 
-- Every zone transfer and NOTIFY is TSIG-signed with the per-secondary key. TSIG is
-  authoritative; addresses are a second check only (`allow-axfr-ips` = cluster VPN network), so
-  the design does not depend on source addresses.
+- Every zone transfer is TSIG-signed with the per-secondary key. `allow-axfr-ips` is empty, which
+  makes the key mandatory. PowerDNS accepts an unsigned AXFR from any address in that list, and with
+  a valid key ignores the list altogether, so it cannot serve as a second check, and setting it to
+  the VPN network would let any cluster node transfer any zone with no key.
+- NOTIFY is not signed (`send-signed-notify=no`). PowerDNS signs with the zone's first
+  `TSIG-ALLOW-AXFR` key and a secondary refuses any other key, so with per-secondary keys all
+  secondaries but one would ignore it. Instead, `allow-notify-from` on each secondary lists only the
+  primary's VPN address. A NOTIFY grants nothing: it only prompts a SOA check, and the transfer still
+  needs the key.
+- `only-notify` is empty, so PowerDNS notifies the registered peers and not whatever the zones' NS
+  names resolve to.
 - Each secondary has its own key, so removing one secondary revokes exactly that key.
 
 ### 6.4 Change propagation
 
 | Change | How secondaries learn of it |
 |---|---|
-| Records change through dnshelper or the Records page | `SOA-EDIT-API` raises the serial, and the primary sends NOTIFY to `also-notify` |
-| New zone | The catalog's serial changes, NOTIFY goes out, the secondary transfers the catalog and creates the member |
+| Records change through dnshelper or the Records page | `SOA-EDIT-API` raises the serial, and the primary sends NOTIFY to `ALSO-NOTIFY` |
+| New zone | The catalog's serial changes, NOTIFY goes out, the secondary transfers the catalog and creates the member, and the next reconcile run gives it its key (§6.2) |
 | Removed zone | Same path, and the secondary deletes the member |
 
-SOA refresh is the safety net if a NOTIFY is lost.
+The primary looks for changed serials each `xfr-cycle-interval`. It is 10 seconds here, not the
+default 60, which gave 6 to 11 seconds end to end when tested between two nodes. A new zone took about
+a minute and a removed one 8 seconds. SOA refresh is the safety net if a NOTIFY is lost.
 
 ### 6.5 Room for external peers (not in v1)
 
@@ -263,6 +278,8 @@ of cluster modules:
   `masters` and key. The zone record keeps a `source` field (`local` in v1) for this.
 - v1 code only writes `kind: "internal"` peers. Readers must ignore unknown kinds rather than
   fail.
+- v1 peers also carry `addresses`, the secondary's public listen addresses, so `add-zone` can report
+  glue for an NS name inside the zone (§5.2).
 
 ## 7. DNSSEC
 
@@ -272,7 +289,7 @@ DNSSEC is a per-zone switch, off by default and offered in `add-zone` and in `up
 Enabling sets `dnssec: true`, which has PowerDNS create the keys and rectify the zone.
 
 - **Algorithm:** ECDSAP256SHA256 (13), as a single combined key (CSK). Set `default-ksk-algorithm=ecdsa256`
-  and `default-zsk-algorithm=` empty in `pdns.conf`. **VERIFY** the setting names for 5.0.
+  and `default-zsk-algorithm=` empty in `pdns.conf`. **Verified (live)** on 5.0.8: this gives one `csk`.
 - **Denial of existence:** NSEC3 with RFC 9276 parameters, `1 0 0 -` (no opt-out, 0 extra
   iterations, no salt), as the default; plain NSEC as an option.
 - **Narrow NSEC3 is not offered:** it refuses AXFR, which would break secondaries.
@@ -280,24 +297,24 @@ Enabling sets `dnssec: true`, which has PowerDNS create the keys and rectify the
 ### 7.2 What the UI shows
 
 - The zone's DS records (SHA-256), from the cryptokeys API, with a copy button and a note that
-  they go to the registrar. **VERIFY** that the cryptokeys endpoint returns `ds`.
+  they go to the registrar. **Verified (live):** the endpoint returns `ds`, for SHA-256 and SHA-384;
+  only SHA-256 is shown. Only the primary shows them, because a secondary holds no keys.
 - A validation status per zone: "DS published at parent" or "not found". This is a DS query
   for the zone through a public resolver, run on demand from the Zones page, not on a timer.
   It is informational only.
 
 ### 7.3 Secondaries
 
-Secondaries receive the signed zone by AXFR and serve it as presigned. **VERIFY:** that a
-PowerDNS secondary detects signed transfers and sets PRESIGNED itself; if not, the reconcile
-step of §6.2 sets the metadata.
+Secondaries receive the signed zone by AXFR and serve it as presigned. **Verified (live):** a
+PowerDNS secondary detects signed transfers and sets PRESIGNED itself.
 
 ### 7.4 Keys and rollover
 
 - Keys live in the primary's gsqlite3 database, so they are part of its backup (§10). A
   restored primary keeps the same keys and the DS at the registrar stays valid.
 - There is no automatic rollover in v1. A CSK with algorithm 13 is commonly kept for years.
-  Disabling DNSSEC on a zone deletes its keys; the UI warns the administrator to remove the DS
-  at the registrar first and to wait for its TTL.
+  Disabling DNSSEC on a zone deletes its keys; the UI asks for confirmation first, warning the
+  administrator to remove the DS at the registrar and to wait for its TTL.
 - A later version may add a manual "roll key" action. Keep key handling in one helper so that
   it can be added without touching zone creation.
 
@@ -330,9 +347,11 @@ key.
 The API key is generated at install (`create-module/10genpasswords`, `state/passwords.env`,
 0600), as the skill's secrets pattern requires. It is never written with `agent.set_env()`.
 
-**VERIFY:** that returning a secret in a task's output is acceptable in NS8. Task output passes
-through Redis. If it is not acceptable, dnshelper needs another way to fetch the key, and that
-decision must be made before either side is coded.
+**Verified (source):** returning a secret in a task's output is acceptable in NS8. ns8-mail's
+`reveal-master-credentials` does the same. Task output passes through Redis, but ACLs limit a module
+to its own `task/module/<id>/*` keys and the default user cannot read `task/`, so unlike
+`state/environment` other modules cannot see it. Cluster administrators can, and they can read the
+key anyway.
 
 ### 8.2 What ns8-dnshelper must add
 
@@ -360,9 +379,9 @@ These are changes to dnshelper, tracked there.
    CAA, CNAME, HTTPS, MX, NS, SRV, SVCB, TXT). Without it, PTR records in adopted reverse zones
    could be edited nowhere, since the powerdns Records page is read-only once dnshelper is in
    charge.
-8. **Deep link:** support opening the Records page on a given zone (e.g. `?zone=example.com`),
-   used by powerdns's read-only view (§9.4). **VERIFY** the NS8 URL form for linking into another
-   module's UI.
+8. **Deep link:** support opening the Records page on a given zone, used by powerdns's read-only
+   view (§9.4). **Verified:** the NS8 form is `/apps/<module id>?page=records&zone=example.com`; the
+   powerdns side uses it, and dnshelper must read `zone`.
 
 ### 8.3 Who writes records
 
@@ -389,11 +408,12 @@ naming the modules.
 | `get-configuration` | ✓ | ✓ | Also reports node addresses and port-53 availability, the primary (if any), and whether dnshelper is installed |
 | `list-zones` | ✓ | ✓ | Name, DNSSEC state, serial; on a secondary, transfer state and last transfer |
 | `add-zone`, `update-zone`, `remove-zone` | ✓ | | `update-zone` changes DNSSEC settings and SOA overrides |
-| `get-zone` | ✓ | ✓ | Includes DS records |
+| `get-zone` | ✓ | ✓ | Includes DS records on a primary |
+| `check-zone-ds` | ✓ | ✓ | Asks a public resolver whether the parent publishes a DS (§7.2) |
 | `get-records` | ✓ | ✓ | Read-only on secondaries |
 | `set-records`, `delete-records` | ✓ | | Refused while dnshelper manages the zone (§8.3) |
 | `list-secondaries`, `remove-secondary` | ✓ | | `remove-secondary` is for stale entries |
-| `get-status` | ✓ | ✓ | Service state, per-zone serials, replication lag (secondary serial vs. primary's) |
+| `get-dns-status` | ✓ | ✓ | Per-zone serials and replication lag (secondary serial vs. primary's). The core owns `get-status`, which still provides service state |
 
 Records in the powerdns actions use dnshelper's shape (`name` relative to the zone, `type`,
 `ttl`, `data` in libdns text form), so the UI code and tests can be shared.
@@ -411,8 +431,14 @@ Records in the powerdns actions use dnshelper's shape (`name` relative to the zo
 org.nethserver.authorizations=node:fwadm powerdns@any:replica dnshelper@cluster:dnsreader
 ```
 
-`dnshelper@cluster:dnsreader` is used only for `has-zone` (§8.3). **VERIFY** that a module can
-declare a role on another instance of its own module (`powerdns@any:replica`).
+`dnshelper@cluster:dnsreader` is used only for `has-zone` (§8.3). **Verified (source):** a module
+can declare a role on another instance of its own module: `powerdns@any` becomes the pattern
+`module/powerdns*`. Exercised between two nodes.
+
+That pattern also matches the instance itself. An instance's role on an agent is a single value and
+the last grant wins, so `replica` can replace the core's `self:selfadm`, in an order that varies. An
+instance therefore must not call its own actions through the API. `restore-module` runs
+`configure-module`'s steps directly, unlike the usual `50call-configure-module` pattern.
 
 ### 9.4 UI pages
 
@@ -430,8 +456,8 @@ declare a role on another instance of its own module (`powerdns@any:replica`).
   - editable on a primary only when dnshelper is not installed, or does not manage the zone;
   - when dnshelper manages the zone, a banner: "Records are managed by dnshelper", with a
     button that opens dnshelper's Records page on this zone.
-- **Replication (primary):** secondaries with address, NS name, last NOTIFY and serial, and a
-  Remove button for stale entries.
+- **Replication (primary):** secondaries with address, NS name and sync state, and a Remove button
+  for stale entries.
 - **Status:** service state, per-zone serial and, on a primary, each secondary's lag.
 
 Follow the skill's frontend rules (`Ns*` components first, `isProgressNotified` for long actions).
@@ -453,14 +479,19 @@ Follow the skill's frontend rules (`Ns*` components first, `isProgressNotified` 
   - NS8 implements a move as a clone followed by removing the source, so refusing clones would
     also break moves.
   - Instead, a primary copy starts in a **standby** state: PowerDNS runs, but the instance does
-    not register the `powerdns-api` key, accept `register-secondary`, or publish events.
-  - A reconcile step (the §6.2 timer, and `get-status`) leaves standby once no other primary
+    not register the `powerdns-api` key, accept `register-secondary`, publish events, or take zone
+    and record changes, since edits to a copy would be lost on takeover.
+  - A reconcile step (the §6.2 timer, and `get-dns-status`) leaves standby once no other primary
     key exists. It then registers the key and publishes `powerdns-replication-changed` and
     `powerdns-provider-changed`, so secondaries re-register and dnshelper updates the API URL.
   - While both exist, the copy's Status page explains the standby and names the other primary.
-  - **VERIFY:** the order of steps in an NS8 move (clone, then source removal), and whether
-    `clone-module` can tell a move from a plain clone; if it can, standby is only needed for
-    plain clones.
+  - **A copy on the same node as its original** cannot run at all, because both need port 53 on the
+    VPN address. It completes the clone or restore without starting, and reconcile starts it once the
+    other instance is gone, so a restore with `replace` works on a one-node cluster. This applies to
+    secondaries too. A copy with `replace: false` keeps waiting until the original is removed.
+  - **Verified (source):** an NS8 move is a clone followed by removing the source, and
+    `clone-module` receives `replace`, so it can tell a move from a plain clone. v1 uses standby
+    for both, because the source's key still exists until it is removed. Tested on one and two nodes.
 - **Restore under a new module id:**
   - TSIG key names embed secondary ids, so after restoring a primary, every secondary must
     re-register;
@@ -494,11 +525,7 @@ variable restored by `06copyenv`.
 
 ## 12. Open items
 
-1. The **VERIFY** items above. The ones that can change the design are:
-   - host networking (§4.2);
-   - secrets in task output (§8.1);
-   - TSIG inheritance for catalog members (§6.2);
-   - how NS8 sequences a move (§10).
+1. The dnshelper side of §8.2, and the integration test in §11 that depends on it.
 2. A manual DNSSEC key-roll action, for a later version.
 
 ## 13. Community requests (for the release announcement)

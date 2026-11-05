@@ -24,6 +24,21 @@ Run action
     ${parsed} =    Evaluate    json.loads(r'''${output}''' or '{}')    modules=json
     RETURN    ${parsed}
 
+Run cluster action
+    [Arguments]    ${action}    ${data}={}
+    ${output}  ${rc} =    Execute Command    api-cli run cluster/${action} --data '${data}'
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}  0
+    ${parsed} =    Evaluate    json.loads(r'''${output}''' or '{}')    modules=json
+    RETURN    ${parsed}
+
+The zone serves the same DS record
+    [Arguments]    ${expected}
+    ${out} =    Run action    get-zone    {"zone":"${ZONE}"}
+    Should Be Equal    ${out}[ds_records][0]    ${expected}
+    ${status} =    Run action    get-dns-status
+    Should Not Be True    ${status}[standby]
+
 Refused action
     [Arguments]    ${action}    ${data}    ${code}
     ${output}  ${stderr}  ${rc} =    Execute Command    api-cli run module/${module_id}/${action} --data '${data}'
@@ -126,6 +141,25 @@ Check that the backup scripts make a usable copy
     ${rc} =    Execute Command    runagent -m ${module_id} bash -c 'module-dump-state && test -s pdns.sqlite3.backup && module-cleanup-state'
     ...    return_rc=True  return_stdout=False
     Should Be Equal As Integers    ${rc}  0
+
+Check that a backup can be restored over the running instance
+    # On one node the copy waits for the original, which the core removes when the restore succeeds.
+    ${zone} =    Run action    get-zone    {"zone":"${ZONE}"}
+    ${config} =    Run action    get-configuration
+    ${repo} =    Run cluster action    add-backup-repository
+    ...    {"name":"robot","provider":"cluster","password":"","parameters":{},"url":"webdav:http://${config}[vpn_address]:4694"}
+    ${backup} =    Run cluster action    add-backup
+    ...    {"name":"robot","instances":["${module_id}"],"repository":"${repo}[id]","schedule":"daily","schedule_hint":{},"retention":1,"enabled":true}
+    Run cluster action    run-backup    {"id":${backup}}
+    ${listing} =    Run cluster action    list-backups
+    ${path} =    Evaluate    [i for b in $listing['backups'] if b['id'] == ${backup} for i in b['instances']][0]['repository_path']
+    ${restored} =    Run cluster action    restore-module
+    ...    {"repository":"${repo}[id]","path":"${path}","snapshot":"","node":1,"replace":true}
+    Should Not Be Equal    ${restored}[module_id]    ${module_id}
+    Set Global Variable    ${module_id}    ${restored}[module_id]
+    Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone}[ds_records][0]
+    Run cluster action    remove-backup    {"id":${backup}}
+    Run cluster action    remove-backup-repository    {"id":"${repo}[id]"}
 
 Check that a zone can be removed
     Run action    remove-zone    {"zone":"${ZONE}"}

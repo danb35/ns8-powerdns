@@ -17,5 +17,6 @@ import agent
 from pdnsmodule import actions, config
 
 if config.env().get('POWERDNS_ROLE'):
-    actions.enter_standby_if_primary()
+    actions.mark_copy()
+    actions.keep_clone_stopped_if_blocked()
     agent.assert_exp(agent.add_public_service(os.environ['MODULE_ID'], ['53/tcp', '53/udp'], replace_ports=True))

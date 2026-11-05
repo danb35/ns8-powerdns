@@ -8,9 +8,12 @@ import errno
 import fcntl
 import json
 import os
+import re
+import shutil
 import socket
 import subprocess
 import sys
+import time
 
 import agent
 import agent.tasks
@@ -20,6 +23,7 @@ from .pdnsapi import Pdns
 
 API_SERVICE = 'powerdns-api'
 UNIT = 'powerdns.service'
+CATALOG_WAIT_SECONDS = 15
 
 # Interfaces that never carry a public service.
 _SKIP_INTERFACES = ('lo', 'wg', 'podman', 'cni', 'veth', 'docker', 'br-')
@@ -120,11 +124,32 @@ class peers_lock:
         self.fp.close()
 
 
+# --- a copy on the same node as its original (DESIGN 10) --------------------
+
+def sibling_instances(rdb):
+    """Other powerdns instances on this node. They hold port 53 on the VPN address."""
+    nodes = rdb.hgetall('cluster/module_node')
+    return sorted(m for m, node in nodes.items()
+                  if re.fullmatch(r'powerdns[0-9]+', m) and m != os.environ['MODULE_ID']
+                  and str(node) == str(os.environ['NODE_ID']))
+
+
+def start_blocked(rdb=None):
+    """A copy cannot run while its original is on this node: both need the same port.
+
+    The core removes the original only after the copy's restore or clone has
+    succeeded, so the copy must finish without starting. Reconcile starts it.
+    """
+    return config.is_copy_pending() and bool(sibling_instances(rdb or redis()))
+
+
 # --- node addresses and port 53 (DESIGN 4.1) --------------------------------
 
 def node_addresses():
     """The node's global unicast addresses, with the interfaces that carry services."""
-    out = subprocess.run(['ip', '-j', 'addr', 'show'], capture_output=True, text=True, check=True).stdout
+    # A module user's PATH may lack /usr/sbin
+    ip = shutil.which('ip') or '/usr/sbin/ip'
+    out = subprocess.run([ip, '-j', 'addr', 'show'], capture_output=True, text=True, check=True).stdout
     addresses = []
     for iface in json.loads(out):
         if iface['ifname'].startswith(_SKIP_INTERFACES):
@@ -220,6 +245,12 @@ def register_with_primary(values, primary, restart_on_address_change=True):
     pdns = api_client(config.env())
     pdns.wait_ready()
     core.ensure_consumer(pdns, output['catalog'], primary['host'], output['tsig_key'], output['tsig_secret'])
+    # The members exist once the catalog has arrived, usually within a second or
+    # two. Do not leave them to the next timer run, with their first transfers refused.
+    for _ in range(CATALOG_WAIT_SECONDS):
+        if (pdns.zone_or_none(output['catalog']) or {}).get('serial'):
+            break
+        time.sleep(1)
     core.reconcile_members(pdns, output['catalog'], primary['host'], output['tsig_key'])
 
 
@@ -254,6 +285,14 @@ def reconcile(values=None):
     if not role:
         return
     rdb = redis()
+    if config.is_copy_pending():
+        if sibling_instances(rdb):
+            return
+        config.set_copy_pending(False)
+        if not service_active():
+            log('no other instance on this node: starting')
+            subprocess.run(['systemctl', '--user', 'enable', '--now', UNIT], check=True)
+            api_client(values).wait_ready()
     if role == 'primary':
         leave_standby_if_possible(rdb)
         if not config.is_standby():

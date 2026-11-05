@@ -98,6 +98,22 @@ def set_standby(active):
             pass
 
 
+def is_copy_pending():
+    """A clone or restore that has not yet checked for an original on its node."""
+    return os.path.exists(path('copy-pending'))
+
+
+def set_copy_pending(active):
+    if active:
+        with open(path('copy-pending'), 'w'):
+            pass
+    else:
+        try:
+            os.remove(path('copy-pending'))
+        except FileNotFoundError:
+            pass
+
+
 def listen_addresses(values):
     return [a for a in values.get('LISTEN_ADDRESSES', '').split(',') if a]
 

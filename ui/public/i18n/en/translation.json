@@ -146,7 +146,9 @@
         "behind": "{count} zone(s) behind",
         "unreachable": "Unreachable",
         "remove": "Remove",
-        "removing": "Remove secondary {module}"
+        "removing": "Remove secondary {module}",
+        "on_secondary": "This instance is a secondary",
+        "on_secondary_description": "Replication is managed on the primary. See this instance's zones and their transfer state on the Zones page."
     },
     "dns_status": {
         "standby_title": "Standby",
@@ -159,7 +161,9 @@
         "primary_serial": "Primary at {serial}",
         "role_primary": "Primary DNS server",
         "role_secondary": "Secondary DNS server",
-        "no_secondaries": "No secondaries"
+        "no_secondaries": "No secondaries",
+        "waiting_title": "Waiting for another instance",
+        "waiting": "{other} on this node holds port 53, so this copy is not serving. It starts within a minute of that instance being removed."
     },
     "errors": {
         "primary_exists": "{value}: this cluster already has a primary.",
@@ -181,6 +185,7 @@
         "managed_by_dnshelper": "dnshelper manages the records of {value}.",
         "apex_protected": "The zone's own NS and SOA records are set by this module.",
         "name_outside_zone": "{value} is outside this zone.",
-        "invalid_record": "PowerDNS refused this record."
+        "invalid_record": "PowerDNS refused this record.",
+        "service_unavailable": "PowerDNS is not running on this instance."
     }
 }
