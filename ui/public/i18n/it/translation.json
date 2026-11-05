@@ -147,6 +147,8 @@
         "unreachable": "Non raggiungibile",
         "remove": "Rimuovi",
         "removing": "Rimuovi la secondaria {module}",
+        "remove_title": "Rimuovi secondaria",
+        "remove_description": "{module} non risponde. La sua voce viene rimossa, la sua chiave di trasferimento revocata e il suo server dei nomi tolto dai record NS di ogni zona. Fallo solo per una secondaria che non esiste più: una secondaria funzionante si rimuove insieme al suo modulo, nel Software center.",
         "on_secondary": "Questa istanza è una secondaria",
         "on_secondary_description": "La replica si gestisce sulla primaria. Le zone di questa istanza e il loro stato di trasferimento sono nella pagina Zone."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "I record NS e SOA della zona stessa sono impostati da questo modulo.",
         "name_outside_zone": "{value} è fuori da questa zona.",
         "invalid_record": "PowerDNS ha rifiutato questo record.",
-        "service_unavailable": "PowerDNS non è in esecuzione su questa istanza."
+        "service_unavailable": "PowerDNS non è in esecuzione su questa istanza.",
+        "secondary_reachable": "{value} risponde ancora. Rimuovi invece il suo modulo nel Software center."
     }
 }

@@ -263,7 +263,15 @@ def list_secondaries(_request):
     return {'secondaries': core.secondaries_status(ns.api_client(values), ns.settings(values))}
 
 
-remove_secondary = unregister_secondary
+def remove_secondary(request):
+    """Drop a stale entry (DESIGN 9.1). A secondary that still answers is removed with its module."""
+    values = config.env()
+    _require_primary(values, write=False)
+    module_id = request['module_id']
+    status = core.secondaries_status(ns.api_client(values), ns.settings(values))
+    if any(s['module_id'] == module_id and s['reachable'] for s in status):
+        raise core.ActionError('module_id', 'secondary_reachable', module_id)
+    return unregister_secondary(request)
 
 
 # --- status -----------------------------------------------------------------

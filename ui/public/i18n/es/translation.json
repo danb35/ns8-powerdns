@@ -147,6 +147,8 @@
         "unreachable": "Inaccesible",
         "remove": "Eliminar",
         "removing": "Eliminar la secundaria {module}",
+        "remove_title": "Eliminar secundaria",
+        "remove_description": "{module} no responde. Se elimina su entrada, se revoca su clave de transferencia y su servidor de nombres se quita de los registros NS de todas las zonas. Hágalo solo con una secundaria que ya no existe: una secundaria que funciona se elimina junto con su módulo, en el Centro de software.",
         "on_secondary": "Esta instancia es una secundaria",
         "on_secondary_description": "La replicación se gestiona en la primaria. Las zonas de esta instancia y su estado de transferencia están en la página Zonas."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "Los registros NS y SOA de la propia zona los establece este módulo.",
         "name_outside_zone": "{value} está fuera de esta zona.",
         "invalid_record": "PowerDNS ha rechazado este registro.",
-        "service_unavailable": "PowerDNS no se está ejecutando en esta instancia."
+        "service_unavailable": "PowerDNS no se está ejecutando en esta instancia.",
+        "secondary_reachable": "{value} todavía responde. Elimine su módulo en el Centro de software."
     }
 }

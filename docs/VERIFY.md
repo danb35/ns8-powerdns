@@ -35,6 +35,15 @@ within 20 seconds. dnshelper refused changes to the adopted zone and credential.
 powerdns, and later removing the primary, each made dnshelper drop what it had adopted within 5 seconds.
 `set-records` and `delete-records` were refused with `managed_by_dnshelper` only after the fix below.
 
+**UI and edge cases, same day:** with a primary on Debian, a secondary on Rocky and `dnshelper3`
+adopting. The Records page of an adopted zone shows the dnshelper banner and no edit buttons, and its
+link opens `dnshelper3`'s Records page on that zone. Every page was rendered in all nine translations
+with no missing key, raw key name or overflowing text; Arabic and Tamil were also checked by eye. A
+secondary listening on its IPv6 address answered over UDP and TCP from the LAN, and refused recursion
+and AXFR there. With the dnsmasq module holding port 53 on node 1, Settings showed those addresses as
+in use and `configure-module` refused them with `address_busy`. Removing a secondary and saving its
+settings again re-registers it.
+
 **Not tested:** a move with a secondary present, which
 needs three nodes; a clone from Rocky to Debian, because of the core issue below.
 
@@ -109,6 +118,23 @@ is the default instance, and held `dnsreader` only there. With an older default 
 adopting the zones, the default said "not managed" and powerdns allowed edits to adopted zones. powerdns
 now asks every dnshelper instance, holds `dnshelper@any:dnsreader`, and links to the instance that
 manages the zone.
+
+**Remove dropped a working secondary (6.2, 9.4).** The Replication page offered Remove on every
+secondary, with no confirmation. A secondary removed while running stayed installed and kept serving its
+zones at a frozen serial, with nothing on its pages to say so. Remove is now offered only for a secondary
+that does not answer, behind a confirmation, and `remove-secondary` refuses a reachable one with
+`secondary_reachable`. Reachability now includes the catalog, so a secondary with no zones yet is not
+reported unreachable. Retested: refused while running, offered and confirmed once it was stopped.
+
+**The UDP port check missed a listener (4.3).** The probe set `SO_REUSEADDR` on its UDP socket too, which
+on Linux lets it bind beside another program's reuse-enabled socket. With dnsmasq on the address, UDP read
+as free and only the TCP check caught the conflict. The option is now set only on the TCP probe; retested
+with a UDP-only listener, which now reads as busy.
+
+**`pt_BR` was never used (UI).** The template picks the translation from the first two letters of the
+browser's language, so a Brazilian browser got `pt`. The UI now tries the regional folder first
+(`pt-BR` → `pt_BR`). The code comes from the module template, so other modules built from it likely
+have the same limitation.
 
 **The timer drifted (6.2).** systemd's default `AccuracySec` of one minute put runs two minutes apart, which
 held up a restored secondary for over three minutes. It is 5 seconds now.

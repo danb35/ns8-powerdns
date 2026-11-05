@@ -219,6 +219,10 @@ class Replication(unittest.TestCase):
         status = core.secondaries_status(self.p, self.settings, query_serial=lambda _a, _z: None)
         self.assertEqual([s['module_id'] for s in status], ['powerdns2', 'powerdns3'])
         self.assertFalse(status[0]['reachable'])
+        # The catalog alone shows a live secondary, even one that serves no member zone yet.
+        status = core.secondaries_status(self.p, self.settings,
+                                         query_serial=lambda _a, z: 1 if z == self.settings.catalog else None)
+        self.assertTrue(status[0]['reachable'])
 
     def test_serial_query(self):
         core.add_zone(self.p, self.settings, 'query.test')

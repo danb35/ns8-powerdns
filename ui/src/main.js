@@ -37,12 +37,12 @@ Vue.config.productionTip = false;
 
 // i18n
 import VueI18n from "vue-i18n";
-import { loadLanguage } from "./i18n";
+import { browserLanguage, loadLanguage } from "./i18n";
 
 loadI18n();
 
 async function loadI18n() {
-  const navigatorLang = navigator.language.substring(0, 2);
+  const navigatorLang = browserLanguage();
   const messages = await loadLanguage(navigatorLang);
   Vue.use(VueI18n);
   const i18n = new VueI18n();

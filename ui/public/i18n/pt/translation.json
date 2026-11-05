@@ -147,6 +147,8 @@
         "unreachable": "Inacessível",
         "remove": "Remover",
         "removing": "Remover a secundária {module}",
+        "remove_title": "Remover secundária",
+        "remove_description": "{module} não responde. A sua entrada é removida, a sua chave de transferência é revogada e o seu servidor de nomes é retirado dos registos NS de todas as zonas. Faça isto apenas para uma secundária que deixou de existir: uma secundária em funcionamento remove-se com o seu módulo, no Centro de software.",
         "on_secondary": "Esta instância é uma secundária",
         "on_secondary_description": "A replicação é gerida na primária. As zonas desta instância e o seu estado de transferência estão na página Zonas."
     },
@@ -186,6 +188,7 @@
         "apex_protected": "Os registos NS e SOA da própria zona são definidos por este módulo.",
         "name_outside_zone": "{value} está fora desta zona.",
         "invalid_record": "O PowerDNS recusou este registo.",
-        "service_unavailable": "O PowerDNS não está em execução nesta instância."
+        "service_unavailable": "O PowerDNS não está em execução nesta instância.",
+        "secondary_reachable": "{value} ainda responde. Remova antes o seu módulo no Centro de software."
     }
 }

@@ -224,6 +224,11 @@ primary found through service discovery (there is only one, §3).
 `destroy-module`, best effort. If the primary is unreachable, the stale entry is shown on the
 primary's Replication page with a Remove button.
 
+Remove is offered, and `remove-secondary` accepted, only for a secondary that does not answer. A
+secondary is reachable when it answers for the catalog, which every secondary holds, or for any
+member zone. A working secondary is removed with its module: dropped while still installed, it
+would keep serving the zones at a frozen serial without knowing it had been dropped.
+
 **Verified (live):** member zones created by a consumer take its primaries but do not inherit its
 transfer TSIG key (metadata `AXFR-MASTER-TSIG`), so their first transfer is refused. The secondary
 sets the key on each new member in a small reconcile step: it lists secondary zones, sets the missing
@@ -416,7 +421,7 @@ naming the modules.
 | `check-zone-ds` | ✓ | ✓ | Asks a public resolver whether the parent publishes a DS (§7.2) |
 | `get-records` | ✓ | ✓ | Read-only on secondaries |
 | `set-records`, `delete-records` | ✓ | | Refused while dnshelper manages the zone (§8.3) |
-| `list-secondaries`, `remove-secondary` | ✓ | | `remove-secondary` is for stale entries |
+| `list-secondaries`, `remove-secondary` | ✓ | | `remove-secondary` is for stale entries; refused with `secondary_reachable` while the secondary answers (§6.2) |
 | `get-dns-status` | ✓ | ✓ | Per-zone serials and replication lag (secondary serial vs. primary's). The core owns `get-status`, which still provides service state |
 
 Records in the powerdns actions use dnshelper's shape (`name` relative to the zone, `type`,
@@ -465,7 +470,7 @@ instance therefore must not call its own actions through the API. `restore-modul
   - when dnshelper manages the zone, a banner: "Records are managed by dnshelper", with a
     button that opens dnshelper's Records page on this zone.
 - **Replication (primary):** secondaries with address, NS name and sync state, and a Remove button
-  for stale entries.
+  for unreachable ones, behind a type-the-name confirmation.
 - **Status:** service state, per-zone serial and, on a primary, each secondary's lag.
 
 Follow the skill's frontend rules (`Ns*` components first, `isProgressNotified` for long actions).
