@@ -27,7 +27,15 @@ after losing the original, restore to another node, plain clone, and move. A res
 secondary following; a restored secondary serves again about a minute after its restore finishes. A copy
 on another node runs in standby and refuses writes, and takes over within seconds of the original going.
 
-**Not tested:** dnshelper's adoption, which needs §8.2 in that repo; a move with a secondary present, which
+**dnshelper integration, same day:** a primary on Debian and a secondary on Rocky, with `dnshelper3`
+built from danb35/ns8-dnshelper master `9c62af0` and `dnshelper1` (0.4.6) as the cluster default. A new
+zone was adopted within 5 seconds, with a credential marked `managed_by` and the API key never shown.
+Records written with dnshelper's `append-records` were served by the primary at once and by the secondary
+within 20 seconds. dnshelper refused changes to the adopted zone and credential. Removing the zone in
+powerdns, and later removing the primary, each made dnshelper drop what it had adopted within 5 seconds.
+`set-records` and `delete-records` were refused with `managed_by_dnshelper` only after the fix below.
+
+**Not tested:** a move with a secondary present, which
 needs three nodes; a clone from Rocky to Debian, because of the core issue below.
 
 ## Results
@@ -45,6 +53,7 @@ needs three nodes; a clone from Rocky to Debian, because of the core issue below
 | 8.1 | Secret in task output acceptable | Yes, see below | Source |
 | 8.2 | URL for linking into another module | `/apps/<id>?page=<page>`, query parameters allowed. dnshelper must add `zone` | Source |
 | 9.3 | A module can hold a role on its own module | Yes: `@any` becomes the pattern `module/powerdns*` | Source; nodes |
+| 9.3 | `dnshelper@cluster` reaches every dnshelper | **No**: only the default instance; `@any` is needed | Nodes |
 | 10 | Order of a move; can clone tell a move | Clone, then source removal; `replace` is in the clone and restore requests | Source |
 
 ## Where testing changed the design
@@ -94,6 +103,12 @@ cluster. Such a copy now finishes without starting, and the timer starts it when
 the core keeps one role per agent, last grant wins, in the order of a Redis set. So `replica` could replace
 `selfadm`, and the usual `50call-configure-module` got a 403 in some restores and not others. `restore-module`
 runs the steps directly instead. The Robot suite now restores from a real backup.
+
+**Only the default dnshelper was asked (8.3, 9.3).** powerdns found dnshelper with `dnshelper@cluster`, which
+is the default instance, and held `dnsreader` only there. With an older default and a newer instance
+adopting the zones, the default said "not managed" and powerdns allowed edits to adopted zones. powerdns
+now asks every dnshelper instance, holds `dnshelper@any:dnsreader`, and links to the instance that
+manages the zone.
 
 **The timer drifted (6.2).** systemd's default `AccuracySec` of one minute put runs two minutes apart, which
 held up a restored secondary for over three minutes. It is 5 seconds now.
