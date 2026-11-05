@@ -69,10 +69,17 @@ Node). Then:
 - **DNSSEC.** Online signing is enabled by one API field (`dnssec: true`). Outgoing zone
   transfers carry the signatures, so secondaries serve the signed zone without holding keys.
 
-**Image.** `docker.io/powerdns/pdns-auth-50:5.0.8`, the current 5.0 release and the series
-dnshelper was tested against. `pdns-auth-51:5.1.5` also exists; move to it after dnshelper's
-PowerDNS tests pass against 5.1. Pin the full tag in `org.nethserver.images` so Renovate can
-track it.
+**Image.** `docker.io/powerdns/pdns-auth-50:5.0.8`. Pin the full tag in `org.nethserver.images`
+so Renovate can track it.
+
+5.0 has received critical fixes only since 5.1 came out (June 2026), and reaches end of life
+around March 2027, so the module should move to 5.1. It cannot yet: 5.1.5's API refuses a TXT
+record containing `"`, and silently drops a `\` from one, because a new normalization step strips
+the escaping (PowerDNS/pdns#18159). The fix, PowerDNS/pdns#18176, is in master but not in any 5.1
+release as of 5.1.5. Move once a 5.1 release has it and these pass against it: the live unit tests
+(which include that case), dnshelper's PowerDNS tests (`TestLiveTXTQuotesAndBackslashes`), and an
+upgrade of an installed 5.0 instance. The upgrade notes list no gsqlite3 schema change from 5.0 to
+5.1. The image variable becomes `PDNS_AUTH_51_IMAGE`, used in `powerdns.service` and `init-db`.
 
 **Storage.** The gsqlite3 backend: one database file in the module's state, no database
 container, and catalog zones are supported. PowerDNS also lists LMDB as catalog-capable, but

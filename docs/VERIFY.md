@@ -146,8 +146,15 @@ held up a restored secondary for over three minutes. It is 5 seconds now.
   this module. Debian to Rocky works. The current ns8-core source filters such units, so a newer core may
   have fixed it.
 - **PowerDNS polls for security status at startup** ("Polled security status of version 5.0.8"), a DNS query
-  that discloses its version to the PowerDNS project. It is left at the default so that a warning can appear
-  in the log. `security-poll-suffix=` empty turns it off.
+  that discloses its version to the PowerDNS project. It only logs a warning, and updates reach
+  administrators through module releases, so `security-poll-suffix=` is now empty and the poll is off.
+  Checked in a 5.0.8 container: no poll is logged with that setting.
+- **PowerDNS 5.1.5 mangles TXT escaping through the API.** Tested before moving to 5.1: content with an
+  escaped quote (`"a \"q\" b"`) is refused with 422, and an escaped backslash is stored and served without
+  it (`back\slash` becomes `backslash`). 5.0.8 handles both. This broke a powerdns live test added for the
+  case, and dnshelper's `TestLiveTXTQuotesAndBackslashes`; everything else passed on 5.1.5. Upstream:
+  PowerDNS/pdns#18159, fixed in master by #18176, not yet in a 5.1 release. The module stays on 5.0.8
+  (DESIGN 2).
 
 ## Decisions beyond the design
 
