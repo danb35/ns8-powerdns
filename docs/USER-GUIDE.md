@@ -46,6 +46,8 @@ The pages of the application, in the side menu:
 | **Settings** | The role, the name server name, the addresses to answer on, and the SOA settings |
 | **About** | Version and links |
 
+![The Status page of a primary, with each zone's serial and replication state](images/status.png)
+
 ## Before you start
 
 You need:
@@ -104,6 +106,8 @@ Install powerdns from the Software center on the node that will hold the primary
 
 Choose **Save**. The instance starts answering at once.
 
+![Settings of a primary that answers on its public IPv6 address](images/settings.png)
+
 ## Adding secondaries
 
 Install powerdns on another node, open its **Settings**, and choose *Secondary*. The primary is
@@ -112,10 +116,14 @@ such as `ns2.example.com`, and its listen addresses, then save. Put at least one
 node at another site or provider (see [How many servers, and
 where](#how-many-servers-and-where)).
 
+![Settings of a secondary, following the primary powerdns33](images/settings-secondary.png)
+
 The secondary registers with the primary and receives a key of its own, used for nothing but
 copying the zones over the cluster VPN. Every zone, existing or new, reaches it by itself. The
 **Replication** page on the primary lists the secondaries, and shows each one as *In sync*, a number
 of zones behind, or *Unreachable*.
+
+![The Replication page, with one secondary in sync](images/replication.png)
 
 Adding or removing an advertised secondary changes the name servers of **every** zone. Update the
 name servers at the registrar of each of your domains afterwards (see [At the
@@ -137,14 +145,20 @@ On the primary, open **Zones** and choose **Add zone**:
 - **Denial of existence**: *NSEC3*, the default, or *NSEC*. With NSEC, anyone can list every name in
   the zone; NSEC3 makes that much harder. Keep NSEC3 unless you have a reason not to.
 
+![The Add zone dialog, with DNSSEC on](images/add-zone.png)
+
 The zone starts with its SOA record and one NS record for each advertised server. Its **Details**
 open straight away, showing what the registrar needs.
+
+![The Zones page](images/zones.png)
 
 ## At the registrar
 
 Until the registrar lists your servers as the domain's name servers, the internet does not ask
 them anything: the zone exists here, but nobody looks for it. On **Zones**, choose **Details** for
 the zone. **At the registrar** lists everything to enter there:
+
+![A signed zone's Details: its two name servers, the glue for each, and the DS and DNSKEY records](images/zone-details.png)
 
 | What | When | Where it goes at the registrar |
 |---|---|---|
@@ -218,7 +232,11 @@ you can.
 In a zone's Details, **Check the parent zone** asks the servers of the zone above yours (for
 `example.com`, the servers of `com`) what they publish for it, and asks a public validating
 resolver (Cloudflare's 1.1.1.1, or Quad9's 9.9.9.9 if it does not answer) whether the zone resolves.
-It runs only when you choose it. Each line is marked OK, Problem or Unknown:
+It runs only when you choose it.
+
+![The check for a zone whose name servers, glue and DS record are all in place](images/delegation-check.png)
+
+Each line is marked OK, Problem or Unknown:
 
 | Line | What it means when it is a problem |
 |---|---|
@@ -243,6 +261,8 @@ every zone of the primary by itself, within seconds, and from then on records ar
 the Records page here becomes read-only, with a button that opens the zone in dnshelper. Other
 modules, such as a mail server publishing its DKIM key, then change records through dnshelper too,
 within the rules you set there.
+
+![The Records page of a zone that dnshelper manages](images/records.png)
 
 Without dnshelper, records are changed on the Records page of the primary: **Add record**, or
 **Edit** and **Delete** next to a record. Names are relative to the zone, with `@` for the zone itself.
