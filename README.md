@@ -5,8 +5,12 @@ An authoritative DNS server for [NethServer 8](https://github.com/NethServer/ns8
 DNSSEC, and replicates them to secondary instances on other nodes of the cluster.
 
 It works on its own, with a basic Records page, and is designed to be driven by
-[ns8-dnshelper](https://github.com/danb35/ns8-dnshelper), which adopts its zones automatically. That
-adoption needs changes in dnshelper, listed in [DESIGN.md](DESIGN.md) section 8.2.
+[ns8-dnshelper](https://github.com/danb35/ns8-dnshelper) 0.5.0 or later, which adopts its zones
+automatically.
+
+**Administering it?** The [user guide](docs/USER-GUIDE.md) explains setting up the primary and its
+secondaries, adding zones, and what to enter at your registrar: name servers, glue records and the
+DS record, and in which order when moving a live domain.
 
 The server is authoritative only. It never recurses or forwards, so it cannot be an open resolver;
 LAN name resolution stays with dnsmasq or the Samba DC.
@@ -48,8 +52,14 @@ AdGuard Home may already hold it. Zones are managed from the UI or with `add-zon
     api-cli run module/powerdns1/add-zone --data '{"zone":"example.com","dnssec":true}'
     api-cli run module/powerdns1/get-zone --data '{"zone":"example.com"}'
 
-`get-zone` returns the DS record to give your registrar. If an NS name lies inside the zone, `add-zone`
-says so and lists the addresses for the glue records, which also go to the registrar.
+`get-zone` returns what the registrar needs: the name servers, which of them need glue records and
+their addresses, and, for a signed zone, the DS and DNSKEY records. `add-zone` also lists the glue.
+Once the registrar has them, `check-delegation` compares what the parent zone publishes with what the
+zone needs:
+
+    api-cli run module/powerdns1/check-delegation --data '{"zone":"example.com"}'
+
+The [user guide](docs/USER-GUIDE.md#at-the-registrar) explains each entry.
 
 ## Replication
 
