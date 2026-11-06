@@ -40,7 +40,16 @@ adopting. The Records page of an adopted zone shows the dnshelper banner and no 
 link opens `dnshelper3`'s Records page on that zone. Every page was rendered in all nine translations
 with no missing key, raw key name or overflowing text; Arabic and Tamil were also checked by eye. A
 secondary listening on its IPv6 address answered over UDP and TCP from the LAN, and refused recursion
-and AXFR there. With the dnsmasq module holding port 53 on node 1, Settings showed those addresses as
+and AXFR there. On 2026-11-06 a primary on a single-node VPS (Rocky 9.8, core 3.24), listening on its
+public IPv6 address, was queried from another host on the internet: a signed record came back over
+UDP with its RRSIG and over TCP, both authoritative; the DNSKEY was signed; a name outside its zones
+was `REFUSED`; and AXFR failed. The same day, the released dnshelper 0.5.0 adopted a zone from a new
+primary within 14 seconds, its records were served, powerdns refused direct edits, and dnshelper
+dropped the zone 3 seconds after it was removed. The delegation check's comparison was run against
+real zones from the Mac: `2v6.in` matched its Cloudflare delegation as read from the `.in` registry's
+own servers; with a made-up name server it listed that name as missing and Cloudflare's as not
+served here; `bbc.co.uk` returned its glue from `.co.uk`; an undelegated name read as not
+delegated; and `dnssec-failed.org` gave a stale DS and SERVFAIL. With the dnsmasq module holding port 53 on node 1, Settings showed those addresses as
 in use and `configure-module` refused them with `address_busy`. Removing a secondary and saving its
 settings again re-registers it.
 

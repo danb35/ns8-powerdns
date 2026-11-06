@@ -60,6 +60,20 @@ Open page
     Sleep    5s
     Take Screenshot    filename=${OUTPUT DIR}/browser/screenshot/${shot}.png
 
+Open zone details
+    # What the registrar needs, then the delegation check. The test zone is not delegated,
+    # so the check shows the not-delegated and unknown lines.
+    Click    iframe >>> button >> text="Details"
+    Wait For Elements State    iframe >>> text="At the registrar"    visible    timeout=30s
+    Sleep    2s
+    Take Screenshot    filename=${OUTPUT DIR}/browser/screenshot/5._Zone_details.png
+    Click    iframe >>> button >> text="Check the parent zone"
+    Wait For Elements State    iframe >>> .check-delay    visible    timeout=60s
+    Scroll To Element    iframe >>> .check-delay
+    Sleep    2s
+    Take Screenshot    filename=${OUTPUT DIR}/browser/screenshot/6._Delegation_check.png
+    Keyboard Key    press    Escape
+
 *** Test Cases ***
 Check if powerdns is installed correctly
     ${output}  ${rc} =    Execute Command    add-module ${IMAGE_URL} 1
@@ -132,9 +146,10 @@ Take screenshots of the configured pages
     Open page    status    Status    2._Status
     Open page    settings    Settings    3._Settings
     Open page    zones    Zones    4._Zones
-    Open page    records&zone=${ZONE}    Records    5._Records
-    Open page    replication    Replication    6._Replication
-    Open page    about    About    7._About
+    Open zone details
+    Open page    records&zone=${ZONE}    Records    7._Records
+    Open page    replication    Replication    8._Replication
+    Open page    about    About    9._About
     Close Browser
 
 Check that the backup scripts make a usable copy

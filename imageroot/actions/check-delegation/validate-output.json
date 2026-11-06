@@ -1,0 +1,192 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "check-delegation output",
+    "$id": "http://schema.nethserver.org/powerdns/check-delegation-output.json",
+    "description": "Compare what the parent zone publishes for a zone with what the zone needs at the registrar. Informational",
+    "type": "object",
+    "required": [
+        "zone",
+        "resolver",
+        "parent",
+        "parent_server",
+        "delegated",
+        "ns_expected",
+        "ns_published",
+        "ns_missing",
+        "ns_extra",
+        "glue",
+        "signed",
+        "ds_expected",
+        "ds_published",
+        "ds_ok",
+        "resolution"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "zone": {
+            "type": "string"
+        },
+        "resolver": {
+            "type": "string",
+            "description": "The public resolver used; empty when none answered"
+        },
+        "parent": {
+            "type": "string",
+            "description": "The enclosing zone that delegates this one, like com"
+        },
+        "parent_server": {
+            "type": "string",
+            "description": "The parent name server that was asked"
+        },
+        "delegated": {
+            "type": [
+                "boolean",
+                "null"
+            ],
+            "description": "Whether the parent delegates the zone at all; null when no parent server answered"
+        },
+        "ns_expected": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "NS names the registrar should list"
+        },
+        "ns_published": {
+            "type": [
+                "array",
+                "null"
+            ],
+            "items": {
+                "type": "string"
+            },
+            "description": "NS names the parent lists"
+        },
+        "ns_missing": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Expected NS names the parent does not list"
+        },
+        "ns_extra": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "NS names the parent lists that are not expected"
+        },
+        "glue": {
+            "type": "array",
+            "description": "For each NS name inside the zone, the glue the parent should publish and does",
+            "items": {
+                "type": "object",
+                "required": [
+                    "ns_name",
+                    "expected",
+                    "published",
+                    "ok"
+                ],
+                "properties": {
+                    "ns_name": {
+                        "type": "string"
+                    },
+                    "expected": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "published": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "ok": {
+                        "type": "boolean"
+                    }
+                }
+            }
+        },
+        "signed": {
+            "type": "boolean"
+        },
+        "ds_expected": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "SHA-256 DS records for the zone, empty when unsigned"
+        },
+        "ds_published": {
+            "type": [
+                "array",
+                "null"
+            ],
+            "items": {
+                "type": "string"
+            },
+            "description": "DS records at the parent; null when the resolver did not answer"
+        },
+        "ds_ok": {
+            "type": [
+                "boolean",
+                "null"
+            ],
+            "description": "Signed: every DS at the parent matches a key. Unsigned: the parent has no DS"
+        },
+        "resolution": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "enum": [
+                "ok",
+                "servfail",
+                "nxdomain",
+                "error",
+                null
+            ],
+            "description": "How a validating resolver answers the zone SOA"
+        }
+    },
+    "examples": [
+        {
+            "zone": "example.com",
+            "resolver": "1.1.1.1",
+            "parent": "com",
+            "parent_server": "a.gtld-servers.net",
+            "delegated": true,
+            "ns_expected": [
+                "ns1.example.com"
+            ],
+            "ns_published": [
+                "ns1.example.com"
+            ],
+            "ns_missing": [],
+            "ns_extra": [],
+            "glue": [
+                {
+                    "ns_name": "ns1.example.com",
+                    "expected": [
+                        "192.0.2.1"
+                    ],
+                    "published": [
+                        "192.0.2.1"
+                    ],
+                    "ok": true
+                }
+            ],
+            "signed": true,
+            "ds_expected": [
+                "12345 13 2 ABCDEF"
+            ],
+            "ds_published": [
+                "12345 13 2 ABCDEF"
+            ],
+            "ds_ok": true,
+            "resolution": "ok"
+        }
+    ]
+}

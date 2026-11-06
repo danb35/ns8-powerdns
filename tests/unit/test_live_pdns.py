@@ -136,6 +136,13 @@ class Replication(unittest.TestCase):
         self.assertEqual(info['denial'], 'nsec3')
         self.assertEqual(len(info['ds_records']), 1)
         self.assertRegex(info['ds_records'][0], r'^\d+ 13 2 [0-9a-f]{64}$')
+        # A CSK: one DNSKEY with the SEP flag, for registries that take the key instead of a DS
+        self.assertEqual(len(info['dnskey_records']), 1)
+        self.assertRegex(info['dnskey_records'][0], r'^257 3 13 \S+$')
+        # What the registrar needs: every advertised server, none of them inside this zone
+        self.assertEqual([(n['ns_name'], n['glue']) for n in info['name_servers']],
+                         [('ns-powerdns2.example.net', False), ('ns-powerdns3.example.net', False),
+                          ('ns1.example.net', False)])
         self.assertEqual(self.p.zone('signed.test.', rrsets=False)['nsec3param'], '1 0 0 -')
         self.assertFalse(self.p.zone('signed.test.', rrsets=False)['nsec3narrow'])
         self.assertTrue(self.wait_replicated('signed.test.'))
@@ -153,6 +160,7 @@ class Replication(unittest.TestCase):
         self.assertEqual(info['denial'], 'nsec3')
         info = core.update_zone(self.p, self.settings, 'toggle.test', dnssec=False)
         self.assertFalse(info['dnssec'])
+        self.assertEqual((info['ds_records'], info['dnskey_records']), ([], []))
         self.assertEqual(self.p.cryptokeys('toggle.test.'), [])
 
     def test_5_removed_zone_leaves_the_secondaries(self):
