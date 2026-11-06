@@ -20,6 +20,32 @@ and how, including where testing changed the design.
 
 ## Install
 
+### From the Software center (recommended)
+
+powerdns is published in the software repository at
+[danb35.github.io/ns8-repomd](https://danb35.github.io/ns8-repomd/) (source:
+[danb35/ns8-repomd](https://github.com/danb35/ns8-repomd)). Add it to the cluster once:
+
+1. In the cluster admin UI, open **Settings → Software repositories** and click **Add repository**.
+2. Enter a name (for example `danb35`) and the URL `https://danb35.github.io/ns8-repomd/`, leave
+   **Status** enabled, and click **Add repository**. NS8 warns about third-party repositories;
+   this one only lists the images published from this GitHub account.
+3. Open the **Software center**, find **powerdns**, and click **Install**. Install it on the node
+   that will hold the primary, then again on each node that will hold a secondary.
+
+Or add the repository from a shell on the leader node:
+
+    api-cli run add-repository --data '{"name":"danb35","url":"https://danb35.github.io/ns8-repomd/","status":true}'
+
+With the repository added, new releases are offered as updates in the Software center like any
+other app.
+
+To have [dnshelper](https://github.com/danb35/ns8-dnshelper) adopt the zones, install dnshelper
+0.5.0 or later from NethForge: on the same page, enable the `nethforge` repository, which every
+cluster already has, disabled by default.
+
+### From the command line
+
     add-module ghcr.io/danb35/powerdns:latest 1
 
 The output names the instance, for example `powerdns1`. At most one instance runs per node, because

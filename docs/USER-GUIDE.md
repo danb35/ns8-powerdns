@@ -93,7 +93,8 @@ for maintenance. For a reverse zone, fewer servers, less spread out, are usually
 ## Setting up the primary
 
 Install powerdns from the Software center on the node that will hold the primary, then open
-**Settings**:
+**Settings**. If the Software center does not list powerdns, add its software repository first, as
+the [README](../README.md#install) explains:
 
 | Field | What to enter |
 |---|---|
