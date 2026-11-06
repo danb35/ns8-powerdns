@@ -49,7 +49,11 @@ dropped the zone 3 seconds after it was removed. The delegation check's comparis
 real zones from the Mac: `2v6.in` matched its Cloudflare delegation as read from the `.in` registry's
 own servers; with a made-up name server it listed that name as missing and Cloudflare's as not
 served here; `bbc.co.uk` returned its glue from `.co.uk`; an undelegated name read as not
-delegated; and `dnssec-failed.org` gave a stale DS and SERVFAIL. With the dnsmasq module holding port 53 on node 1, Settings showed those addresses as
+delegated; and `dnssec-failed.org` gave a stale DS and SERVFAIL. Then against a real delegation: `demo.2v6.in`,
+delegated from Cloudflare to a primary on the VPS. With a second NS name the VPS did not serve
+and no DS, the check reported that name as not served here and the DS as missing, with glue and
+resolution OK. Once the extra name was removed and the DS added, every line was OK, including
+validation through 1.1.1.1. With the dnsmasq module holding port 53 on node 1, Settings showed those addresses as
 in use and `configure-module` refused them with `address_busy`. Removing a secondary and saving its
 settings again re-registers it.
 
