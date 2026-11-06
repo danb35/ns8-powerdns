@@ -38,12 +38,15 @@ buildah run \
 # Add imageroot directory to the container image
 buildah add "${container}" imageroot /imageroot
 buildah add "${container}" ui/dist /ui
-# Setup the entrypoint, ask to reserve one TCP port with the label and set a rootless container
+# Setup the entrypoint, ask to reserve one TCP port with the label and set a rootless container.
+# min-core: agent.mset_env, used to save settings, first shipped in core 3.18.0; every other core
+# API, label and shared UI string the module uses is in 3.9.1 or earlier (DESIGN 9.3).
 buildah config --entrypoint=/ \
     --label="org.nethserver.authorizations=node:fwadm powerdns@any:replica dnshelper@any:dnsreader" \
     --label="org.nethserver.tcp-ports-demand=1" \
     --label="org.nethserver.rootfull=0" \
     --label="org.nethserver.max-per-node=1" \
+    --label="org.nethserver.min-core=3.18.0" \
     --label="org.nethserver.images=docker.io/powerdns/pdns-auth-50:5.0.8" \
     "${container}"
 # Commit the image
