@@ -472,6 +472,19 @@ the last grant wins, so `replica` can replace the core's `self:selfadm`, in an o
 instance therefore must not call its own actions through the API. `restore-module` runs
 `configure-module`'s steps directly, unlike the usual `50call-configure-module` pattern.
 
+**Minimum core: 3.18.0** (`org.nethserver.min-core`). Each core dependency was traced to the
+first stable core release that has it, in ns8-core's history:
+
+| Dependency | First in |
+|---|---|
+| `agent.mset_env` | 3.18.0 |
+| The core UI string `backup.some_backups_failed_or_are_pending`, used on the Status page | 3.9.1 |
+| `add_public_service(..., replace_ports=True)` | 3.6.3 |
+| `org.nethserver.max-per-node` | 2.10.0 |
+| `@any` grants, `resolve_agent_id`, `list_service_providers`, `remove_public_service`, `redis-exec`, `tcp-ports-demand`, `module-dump-state`, the module UUID, `runagent` with the module's `bin/` on its PATH, and every other core UI string used | 0.0.x |
+
+Tested on 3.24.0 only. Raise the label when the module starts to use something newer.
+
 ### 9.4 UI pages
 
 - **Settings:**

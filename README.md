@@ -30,7 +30,8 @@ powerdns is published in the software repository at
 2. Enter a name (for example `danb35`) and the URL `https://danb35.github.io/ns8-repomd/`, leave
    **Status** enabled, and click **Add repository**. NS8 warns about third-party repositories;
    this one only lists the images published from this GitHub account.
-3. Open the **Software center**, find **powerdns**, and click **Install**. Install it on the node
+3. Open the **Software center**, find **powerdns**, and click **Install**. It needs NS8 core
+   3.18.0 or later. Install it on the node
    that will hold the primary, then again on each node that will hold a secondary.
 
 Or add the repository from a shell on the leader node:
