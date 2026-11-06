@@ -64,9 +64,29 @@ You need:
 - **A host name for each server**, such as `ns1.example.com` and `ns2.example.com`. Each name must
   have an A or AAAA record with the server's public address, wherever that name's own zone is
   hosted: here, or at another DNS host.
-- Preferably **two nodes**: one for the primary and one for a secondary. Many registries require at
-  least two name servers for a domain, and two servers on different nodes keep the domain
-  answering when one is down.
+- **At least two nodes, in different places**: one for the primary and at least one for a
+  secondary. See [How many servers, and where](#how-many-servers-and-where).
+
+### How many servers, and where
+
+Every zone must be served by **at least two name servers**. The DNS specification requires it
+([RFC 1034](https://www.rfc-editor.org/rfc/rfc1034#section-4.1), section 4.1), and most registries
+refuse a domain with fewer.
+
+The two must not fail together. [RFC 2182](https://www.rfc-editor.org/rfc/rfc2182) (BCP 16,
+*Selection and Operation of Secondary DNS Servers*) says that servers "must be placed at both
+topologically and geographically dispersed locations", so that a single power cut, link failure
+or provider outage cannot take all of them offline (section 3.1). Two nodes in the same building,
+or behind the same internet connection, count as one place: when that connection is down, so is
+your domain, and mail to it bounces once the sending servers give up retrying.
+
+So place at least one secondary somewhere else: at another site, or on a VPS at a different
+provider. An NS8 cluster can span the internet, because its nodes talk over the cluster VPN, so a
+remote node can simply join it.
+
+RFC 2182 goes further and recommends **three servers** for most domains, with at least one well
+away from the others (section 5): with only two, a domain runs on one whenever the other is down
+for maintenance. For a reverse zone, fewer servers, less spread out, are usually enough.
 
 ## Setting up the primary
 
@@ -88,7 +108,9 @@ Choose **Save**. The instance starts answering at once.
 
 Install powerdns on another node, open its **Settings**, and choose *Secondary*. The primary is
 already selected under **Primary to follow**. Give the secondary its own **Name server host name**,
-such as `ns2.example.com`, and its listen addresses, then save.
+such as `ns2.example.com`, and its listen addresses, then save. Put at least one secondary on a
+node at another site or provider (see [How many servers, and
+where](#how-many-servers-and-where)).
 
 The secondary registers with the primary and receives a key of its own, used for nothing but
 copying the zones over the cluster VPN. Every zone, existing or new, reaches it by itself. The
