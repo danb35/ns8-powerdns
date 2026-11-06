@@ -189,13 +189,29 @@ def get_zone(request):
     return core.get_zone(ns.api_client(values), ns.settings(values), request['zone'])
 
 
-def check_zone_ds(request):
-    """Informational, on demand: does a public resolver see a DS for the zone."""
+def check_delegation(request):
+    """Informational, on demand: what the parent zone publishes for the zone, against what it needs.
+
+    The NS names and glue come from the parent's own servers; the DS and the
+    validation result from a public resolver (DESIGN 7.2).
+    """
+    values = config.env()
+    _require_primary(values, write=False)
+    pdns = ns.api_client(values)
+    settings = ns.settings(values)
+    zone = core.get_zone(pdns, settings, request['zone'])
     for resolver in PUBLIC_RESOLVERS:
-        published = dnsutil.ds_published(resolver, request['zone'])
-        if published is not None:
-            return {'zone': request['zone'], 'published': published, 'resolver': resolver}
-    return {'zone': request['zone'], 'published': None, 'resolver': ''}
+        resolution = dnsutil.resolver_status(resolver, zone['zone'])
+        if resolution is None:
+            continue
+        result = core.compare_delegation(
+            zone['zone'], zone['name_servers'], zone['ds_records'],
+            dnsutil.delegation(resolver, zone['zone']), dnsutil.ds_at_parent(resolver, zone['zone']), resolution)
+        result['resolver'] = resolver
+        return result
+    result = core.compare_delegation(zone['zone'], zone['name_servers'], zone['ds_records'], None, None, None)
+    result['resolver'] = ''
+    return result
 
 
 # --- records ----------------------------------------------------------------
@@ -403,7 +419,7 @@ ACTIONS = {
     'update-zone': update_zone,
     'remove-zone': remove_zone,
     'get-zone': get_zone,
-    'check-zone-ds': check_zone_ds,
+    'check-delegation': check_delegation,
     'get-records': get_records,
     'set-records': set_records,
     'delete-records': delete_records,

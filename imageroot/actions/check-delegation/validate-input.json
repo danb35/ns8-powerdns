@@ -1,0 +1,23 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "check-delegation input",
+    "$id": "http://schema.nethserver.org/powerdns/check-delegation-input.json",
+    "description": "Compare what the parent zone publishes for a zone with what the zone needs at the registrar. Informational",
+    "type": "object",
+    "required": [
+        "zone"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "zone": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Zone name, like example.com"
+        }
+    },
+    "examples": [
+        {
+            "zone": "example.com"
+        }
+    ]
+}

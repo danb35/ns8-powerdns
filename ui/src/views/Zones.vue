@@ -29,16 +29,6 @@
         />
       </cv-column>
     </cv-row>
-    <cv-row v-if="glue.length">
-      <cv-column>
-        <NsInlineNotification
-          kind="warning"
-          :title="$t('zones.glue_title')"
-          :description="glueText"
-          @close="glue = []"
-        />
-      </cv-column>
-    </cv-row>
     <cv-row v-if="isPrimary && !standby">
       <cv-column>
         <NsButton
@@ -87,7 +77,7 @@
                     :icon="Settings20"
                     @click="showDetails(z)"
                   >
-                    {{ $t("zones.dnssec") }}
+                    {{ $t("zones.details") }}
                   </NsButton>
                   <NsButton
                     v-if="!standby"
@@ -156,7 +146,7 @@
       <template slot="primary-button">{{ $t("zones.add_zone") }}</template>
     </NsModal>
 
-    <!-- DNSSEC details -->
+    <!-- zone details: DNSSEC and what the registrar needs -->
     <NsModal
       :visible="!!details"
       @modal-hidden="closeDetails"
@@ -208,17 +198,17 @@
             :description="$t('zones.ds_warning')"
             :showCloseButton="false"
           />
-          <template
-            v-if="
-              details.ds_records &&
-              details.ds_records.length &&
-              !details.confirmDisable
-            "
-          >
-            <p class="ds-intro">{{ $t("zones.ds_intro") }}</p>
+          <template v-if="!details.confirmDisable">
+            <h5 class="registrar-title">{{ $t("zones.registrar_title") }}</h5>
+            <p class="registrar-intro">
+              {{
+                isReverse(details.zone)
+                  ? $t("zones.registrar_intro_reverse")
+                  : $t("zones.registrar_intro", { zone: details.zone })
+              }}
+            </p>
+            <h6>{{ $t("zones.name_servers") }}</h6>
             <NsCodeSnippet
-              v-for="ds in details.ds_records"
-              :key="ds"
               :copyTooltip="core.$t('common.copy_to_clipboard')"
               :copy-feedback="core.$t('common.copied_to_clipboard')"
               :feedback-aria-label="core.$t('common.copied_to_clipboard')"
@@ -227,18 +217,96 @@
               :lessText="core.$t('common.show_less')"
               light
               hideExpandButton
-              >{{ ds }}</NsCodeSnippet
+              >{{ nameServerText }}</NsCodeSnippet
             >
+            <template v-for="ns in glueServers">
+              <p :key="ns.ns_name + '-intro'" class="registrar-intro">
+                {{
+                  publicAddresses(ns).length
+                    ? $t("zones.glue_intro", { name: ns.ns_name })
+                    : $t("zones.glue_no_public", { name: ns.ns_name })
+                }}
+              </p>
+              <NsCodeSnippet
+                v-if="publicAddresses(ns).length"
+                :key="ns.ns_name + '-addresses'"
+                :copyTooltip="core.$t('common.copy_to_clipboard')"
+                :copy-feedback="core.$t('common.copied_to_clipboard')"
+                :feedback-aria-label="core.$t('common.copied_to_clipboard')"
+                :wrap-text="true"
+                :moreText="core.$t('common.show_more')"
+                :lessText="core.$t('common.show_less')"
+                light
+                hideExpandButton
+                >{{ publicAddresses(ns).join("\n") }}</NsCodeSnippet
+              >
+            </template>
+            <template v-if="details.ds_records && details.ds_records.length">
+              <h6>{{ $t("zones.ds_title") }}</h6>
+              <p class="registrar-intro">{{ $t("zones.ds_intro") }}</p>
+              <NsCodeSnippet
+                v-for="ds in details.ds_records"
+                :key="ds"
+                :copyTooltip="core.$t('common.copy_to_clipboard')"
+                :copy-feedback="core.$t('common.copied_to_clipboard')"
+                :feedback-aria-label="core.$t('common.copied_to_clipboard')"
+                :wrap-text="true"
+                :moreText="core.$t('common.show_more')"
+                :lessText="core.$t('common.show_less')"
+                light
+                hideExpandButton
+                >{{ ds }}</NsCodeSnippet
+              >
+              <template
+                v-if="details.dnskey_records && details.dnskey_records.length"
+              >
+                <p class="registrar-intro">{{ $t("zones.dnskey_intro") }}</p>
+                <NsCodeSnippet
+                  v-for="key in details.dnskey_records"
+                  :key="key"
+                  :copyTooltip="core.$t('common.copy_to_clipboard')"
+                  :copy-feedback="core.$t('common.copied_to_clipboard')"
+                  :feedback-aria-label="core.$t('common.copied_to_clipboard')"
+                  :wrap-text="true"
+                  :moreText="core.$t('common.show_more')"
+                  :lessText="core.$t('common.show_less')"
+                  light
+                  hideExpandButton
+                  >{{ key }}</NsCodeSnippet
+                >
+              </template>
+            </template>
             <NsButton
               kind="ghost"
               :icon="Search20"
-              :loading="loading.ds"
-              @click="checkDs"
+              :loading="loading.check"
+              :disabled="loading.check"
+              class="check-button"
+              @click="checkDelegation"
             >
-              {{ $t("zones.check_ds") }}
+              {{ $t("zones.check_parent") }}
             </NsButton>
-            <div v-if="details.dsChecked">
-              {{ $t("zones.ds_status_" + details.dsPublished) }}
+            <div v-if="check" class="check-results">
+              <div v-for="(line, i) in checkLines" :key="i" class="check-line">
+                <cv-tag
+                  :kind="
+                    line.ok === true
+                      ? 'green'
+                      : line.ok === false
+                      ? 'red'
+                      : 'gray'
+                  "
+                  :label="
+                    line.ok === true
+                      ? $t('zones.check_ok')
+                      : line.ok === false
+                      ? $t('zones.check_problem')
+                      : $t('zones.check_unknown')
+                  "
+                />
+                <span>{{ line.text }}</span>
+              </div>
+              <p class="check-delay">{{ $t("zones.check_delay") }}</p>
             </div>
           </template>
           <NsInlineNotification
@@ -293,13 +361,12 @@ export default {
       isPrimary: false,
       standby: false,
       zones: [],
-      glue: [],
-      glueZone: "",
       isAddShown: false,
       add: { zone: "", dnssec: false, denial: "nsec3" },
       details: null,
+      check: null,
       zoneToRemove: null,
-      loading: { load: true, add: false, details: false, ds: false },
+      loading: { load: true, add: false, details: false, check: false },
       error: { load: "", action: "", zone: "", details: "" },
     };
   },
@@ -312,15 +379,85 @@ export default {
         this.isPrimary ? "" : this.$t("zones.transfer"),
       ];
     },
-    glueText() {
-      return this.glue
-        .map(
-          (g) =>
-            `${g.ns_name}: ${
-              g.addresses.join(", ") || this.$t("zones.no_address")
-            }`
-        )
-        .join("; ");
+    nameServers() {
+      return (this.details && this.details.name_servers) || [];
+    },
+    nameServerText() {
+      return this.nameServers.map((ns) => ns.ns_name).join("\n");
+    },
+    glueServers() {
+      return this.nameServers.filter((ns) => ns.glue);
+    },
+    checkLines() {
+      const c = this.check;
+      if (!c) {
+        return [];
+      }
+      const t = (key, values) => this.$t("zones." + key, values);
+      const list = (names) => names.join(", ") || t("check_nothing");
+      const lines = [];
+      // Name servers at the parent
+      if (c.delegated === null) {
+        lines.push({ ok: null, text: t("check_no_parent") });
+      } else if (!c.delegated) {
+        lines.push({
+          ok: false,
+          text: t("check_ns_none", { parent: c.parent }),
+        });
+      } else if (!c.ns_missing.length && !c.ns_extra.length) {
+        lines.push({ ok: true, text: t("check_ns_ok", { parent: c.parent }) });
+      } else {
+        let text = t("check_ns_differ", {
+          parent: c.parent,
+          published: list(c.ns_published),
+        });
+        if (c.ns_missing.length) {
+          text += " " + t("check_ns_missing", { names: list(c.ns_missing) });
+        }
+        if (c.ns_extra.length) {
+          text += " " + t("check_ns_extra", { names: list(c.ns_extra) });
+        }
+        lines.push({ ok: false, text });
+      }
+      // Glue
+      for (const g of c.glue) {
+        lines.push(
+          g.ok
+            ? { ok: true, text: t("check_glue_ok", { name: g.ns_name }) }
+            : {
+                ok: false,
+                text: t("check_glue_bad", {
+                  name: g.ns_name,
+                  published: list(g.published),
+                  expected: list(g.expected),
+                }),
+              }
+        );
+      }
+      // DS
+      if (c.ds_ok === null) {
+        lines.push({ ok: null, text: t("check_ds_unknown") });
+      } else if (c.signed) {
+        if (c.ds_ok) {
+          lines.push({ ok: true, text: t("check_ds_ok") });
+        } else if (!c.ds_published.length) {
+          lines.push({ ok: false, text: t("check_ds_missing") });
+        } else {
+          lines.push({ ok: false, text: t("check_ds_stale") });
+        }
+      } else if (!c.ds_ok) {
+        lines.push({ ok: false, text: t("check_ds_unsigned") });
+      }
+      // What a validating resolver makes of it all
+      if (!c.resolution) {
+        lines.push({ ok: null, text: t("check_no_resolver") });
+      } else {
+        lines.push({
+          ok: c.resolution === "ok",
+          text: t("check_resolve_" + c.resolution, { resolver: c.resolver }),
+        });
+      }
+      return lines;
     },
     removeDescription() {
       return this.zoneToRemove && this.zoneToRemove.dnssec
@@ -382,10 +519,10 @@ export default {
           this.add,
           this.$t("zones.adding", { zone: this.add.zone })
         );
-        this.glue = out.glue;
-        this.glueZone = out.zone;
         this.isAddShown = false;
         await this.load();
+        // What to give the registrar comes next, so show it straight away
+        await this.showDetails({ zone: out.zone });
       } catch (failure) {
         this.error.zone = this.taskErrorText(failure);
       }
@@ -395,13 +532,15 @@ export default {
       this.error.details = "";
       try {
         const info = await this.runTask("get-zone", { zone: zone.zone });
-        this.details = { ...info, wasSigned: false, dsChecked: false };
+        this.details = { ...info, wasSigned: false };
+        this.check = null;
       } catch (failure) {
         this.error.action = this.taskErrorText(failure);
       }
     },
     closeDetails() {
       this.details = null;
+      this.check = null;
       this.load();
     },
     async changeDnssec() {
@@ -430,37 +569,36 @@ export default {
         this.details = {
           ...info,
           wasSigned: wasEnabled,
-          dsChecked: false,
           confirmDisable: false,
         };
+        this.check = null;
       } catch (failure) {
         this.error.details = this.taskErrorText(failure);
         this.details = { ...this.details, dnssec: wasEnabled };
       }
       this.loading.details = false;
     },
-    async checkDs() {
-      this.loading.ds = true;
+    isReverse(zone) {
+      return /\.arpa\.?$/i.test(zone);
+    },
+    publicAddresses(ns) {
+      return ns.addresses.filter((a) => a.public).map((a) => a.address);
+    },
+    async checkDelegation() {
+      this.loading.check = true;
+      this.error.details = "";
       try {
-        const out = await this.runTask("check-zone-ds", {
+        this.check = await this.runTask("check-delegation", {
           zone: this.details.zone,
         });
-        this.details = {
-          ...this.details,
-          dsChecked: true,
-          dsPublished: String(out.published),
-        };
       } catch (failure) {
         this.error.details = this.taskErrorText(failure);
       }
-      this.loading.ds = false;
+      this.loading.check = false;
     },
     async removeZone() {
       const zone = this.zoneToRemove.zone;
       this.zoneToRemove = null;
-      if (this.glueZone === zone) {
-        this.glue = [];
-      }
       try {
         await this.runTask(
           "remove-zone",
@@ -478,7 +616,29 @@ export default {
 
 <style scoped lang="scss">
 @import "../styles/carbon-utils";
-.ds-intro {
-  margin: 1rem 0 0.5rem;
+.registrar-title {
+  margin-top: 1.5rem;
+}
+.registrar-intro {
+  margin: 0.5rem 0;
+}
+h6 {
+  margin-top: 1rem;
+}
+.check-button {
+  margin-top: 1rem;
+}
+.check-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.check-line .bx--tag {
+  flex-shrink: 0;
+}
+.check-delay {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
 }
 </style>

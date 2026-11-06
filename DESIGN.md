@@ -186,7 +186,10 @@ an `advertise` flag, on by default.
 - `add-zone` warns when an `ns_name` lies inside the zone being created, because the registrar
   will then need glue records. It also shows the addresses to use for them.
 
-The module only reports glue; it never sets it, since glue lives at the registrar.
+The module only reports glue; it never sets it, since glue lives at the registrar. `get-zone`
+lists every NS name with a `glue` flag and its known addresses, each marked public or not: a
+private address cannot be glue, so the UI leaves it out and asks for the public one when that is
+all there is (a node behind NAT).
 
 ### 5.3 Removing a zone
 
@@ -311,9 +314,18 @@ Enabling sets `dnssec: true`, which has PowerDNS create the keys and rectify the
 - The zone's DS records (SHA-256), from the cryptokeys API, with a copy button and a note that
   they go to the registrar. **Verified (live):** the endpoint returns `ds`, for SHA-256 and SHA-384;
   only SHA-256 is shown. Only the primary shows them, because a secondary holds no keys.
-- A validation status per zone: "DS published at parent" or "not found". This is a DS query
-  for the zone through a public resolver, run on demand from the Zones page, not on a timer.
-  It is informational only.
+- The DNSKEY too, for registries that take the key instead of a DS (DENIC, for example).
+- A delegation check, `check-delegation`, run on demand from the zone's Details, not on a timer.
+  It is informational only:
+  - **NS and glue** come from the parent zone's own servers, found through a public resolver and
+    asked without recursion; their referral carries the NS set and the glue. A resolver would
+    answer from the child instead and hide a registrar entry that differs.
+  - **DS** comes from a public resolver. Every DS at the parent must match a key of the zone
+    (key tag and algorithm, and the digest for SHA-256); an unsigned zone must have none.
+  - **Resolution:** the zone's SOA through the same validating resolver. SERVFAIL there, with the
+    rest in place, most often means a DS that matches no key.
+  - Resolvers are 1.1.1.1, then 9.9.9.9. The comparison itself is a pure function
+    (`core.compare_delegation`), unit-tested without the network.
 
 ### 7.3 Secondaries
 
@@ -424,8 +436,8 @@ naming the modules.
 | `get-configuration` | ✓ | ✓ | Also reports node addresses and port-53 availability, the primary (if any), and whether dnshelper is installed |
 | `list-zones` | ✓ | ✓ | Name, DNSSEC state, serial; on a secondary, transfer state and last transfer |
 | `add-zone`, `update-zone`, `remove-zone` | ✓ | | `update-zone` changes DNSSEC settings and SOA overrides |
-| `get-zone` | ✓ | ✓ | Includes DS records on a primary |
-| `check-zone-ds` | ✓ | ✓ | Asks a public resolver whether the parent publishes a DS (§7.2) |
+| `get-zone` | ✓ | ✓ | On a primary, also what the registrar needs: the NS names, with glue flags and addresses, and the DS and DNSKEY records (§5.2, §7.2) |
+| `check-delegation` | ✓ | | Compares what the parent zone publishes (NS, glue, DS) with what the zone needs, and asks a validating resolver whether it resolves (§7.2) |
 | `get-records` | ✓ | ✓ | Read-only on secondaries |
 | `set-records`, `delete-records` | ✓ | | Refused while dnshelper manages the zone (§8.3) |
 | `list-secondaries`, `remove-secondary` | ✓ | | `remove-secondary` is for stale entries; refused with `secondary_reachable` while the secondary answers (§6.2) |
@@ -469,7 +481,9 @@ instance therefore must not call its own actions through the API. `restore-modul
   - hostmaster and SOA timers;
   - on a secondary, the primary to follow.
 - **Zones:**
-  - primary: list, add, remove, DNSSEC switch, DS records;
+  - primary: list, add, remove, and a Details dialog per zone: the DNSSEC switch, then "At the
+    registrar" (name servers, glue, DS and DNSKEY) and the delegation check. Details opens by
+    itself after a zone is added;
   - secondary: read-only list with transfer status.
 - **Records:**
   - per zone, read-only by default;

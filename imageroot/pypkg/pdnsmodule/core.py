@@ -8,6 +8,8 @@ Nothing here touches the node. What these functions need from the instance
 comes in through a Settings object, so tests drive them against a real PowerDNS.
 """
 
+import ipaddress
+
 from . import config, dnsutil
 from .pdnsapi import ApiError
 
@@ -131,13 +133,70 @@ def zone_names(pdns, settings):
 
 def glue_warnings(settings, zone):
     """Which NS names lie inside the zone, and the addresses the registrar needs."""
+    return [{'ns_name': n['ns_name'], 'addresses': [a['address'] for a in n['addresses']]}
+            for n in name_servers(settings, zone) if n['glue']]
+
+
+def name_servers(settings, zone):
+    """What the registrar needs for each NS name: whether it is inside the zone, and its addresses."""
     zone = dnsutil.canonical(zone)
     known = {dnsutil.canonical(settings.ns_name): settings.addresses}
     for peer in internal_peers(settings):
         if peer.get('ns_name'):
             known[dnsutil.canonical(peer['ns_name'])] = peer.get('addresses', [])
-    return [{'ns_name': dnsutil.display(n), 'addresses': known.get(n, [])}
-            for n in ns_names(settings) if dnsutil.is_subdomain(n, zone)]
+    return [{'ns_name': dnsutil.display(n), 'glue': dnsutil.is_subdomain(n, zone),
+             'addresses': [{'address': a, 'public': dnsutil.is_public(a)} for a in known.get(n, [])]}
+            for n in ns_names(settings)]
+
+
+def _same_ds(ours, theirs):
+    """A parent DS matches when it has our key tag and algorithm, and our digest for SHA-256."""
+    a, b = ours.split(), theirs.split()
+    if a[:2] != b[:2]:
+        return False
+    return b[2] != '2' or a[3].upper() == b[3].upper()
+
+
+def compare_delegation(zone, servers, ds_expected, observed, ds_published, resolution):
+    """Compare what the zone needs at the registrar with what the parent publishes (DESIGN 7.2).
+
+    servers: name_servers(); ds_expected: ds_records(), empty for an unsigned zone;
+    observed: dnsutil.delegation() or None; ds_published: dnsutil.ds_at_parent() or None;
+    resolution: dnsutil.resolver_status().
+    """
+    expected = [dnsutil.canonical(s['ns_name']) for s in servers]
+    result = {'zone': dnsutil.display(zone), 'parent': '', 'parent_server': '', 'delegated': None,
+              'ns_expected': [dnsutil.display(n) for n in expected], 'ns_published': None,
+              'ns_missing': [], 'ns_extra': [], 'glue': [], 'signed': bool(ds_expected),
+              'ds_expected': ds_expected, 'ds_published': ds_published, 'ds_ok': None,
+              'resolution': resolution}
+    if observed is not None:
+        published = observed['name_servers']
+        result.update({
+            'parent': dnsutil.display(observed['parent']), 'parent_server': dnsutil.display(observed['server']),
+            'delegated': bool(published), 'ns_published': [dnsutil.display(n) for n in published],
+            'ns_missing': [dnsutil.display(n) for n in expected if n not in published],
+            'ns_extra': [dnsutil.display(n) for n in published if n not in expected],
+        })
+        for server in servers:
+            if not server['glue']:
+                continue
+            wanted = sorted(a['address'] for a in server['addresses'] if a['public'])
+            have = sorted(observed['glue'].get(dnsutil.canonical(server['ns_name']), []))
+            result['glue'].append({'ns_name': server['ns_name'], 'expected': wanted, 'published': have,
+                                   'ok': bool(have) and set(_canonical_ip(a) for a in have) == set(_canonical_ip(a) for a in wanted)})
+    if ds_published is not None:
+        if ds_expected:
+            # Every DS at the parent must match a key, or validating resolvers fail the zone
+            result['ds_ok'] = bool(ds_published) and all(any(_same_ds(o, t) for o in ds_expected) for t in ds_published)
+        else:
+            # An unsigned zone must have no DS at all
+            result['ds_ok'] = not ds_published
+    return result
+
+
+def _canonical_ip(address):
+    return str(ipaddress.ip_address(address))
 
 
 def _apply_dnssec(pdns, zone, dnssec, denial):
@@ -220,6 +279,11 @@ def ds_records(pdns, zone):
     return out
 
 
+def dnskey_records(pdns, zone):
+    """The published keys, for registries that take a DNSKEY instead of a DS."""
+    return [key['dnskey'] for key in pdns.cryptokeys(zone) if key.get('published', True) and key.get('dnskey')]
+
+
 def get_zone(pdns, settings, name):
     zone = _existing_zone(pdns, name)
     info = pdns.zone(zone, rrsets=False)
@@ -233,9 +297,10 @@ def get_zone(pdns, settings, name):
         'denial': ('nsec3' if info.get('nsec3param') else 'nsec') if info.get('dnssec') else None,
         # A secondary holds no keys, so its copy has no DS to show (DESIGN 3).
         'ds_records': ds_records(pdns, zone) if primary and info.get('dnssec') else [],
+        'dnskey_records': dnskey_records(pdns, zone) if primary and info.get('dnssec') else [],
     }
     if primary:
-        result['glue'] = glue_warnings(settings, zone)
+        result['name_servers'] = name_servers(settings, zone)
     return result
 
 

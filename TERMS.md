@@ -24,14 +24,14 @@ API answers only on the cluster VPN (on a primary) or the node itself (on a seco
 | Data | Where it goes | When |
 |---|---|---|
 | Your zones and records, including signatures for signed zones | The secondaries you install in your cluster, over the cluster VPN, with a key for each secondary | On every change |
-| The zone's name, and the node's IP address | Cloudflare (1.1.1.1) and, if it does not answer, Quad9 (9.9.9.9) | Only when you press **Check parent zone** |
+| The zone's name, and the node's IP address | Cloudflare (1.1.1.1) and, if it does not answer, Quad9 (9.9.9.9); and the name servers of the zone above yours, such as the `.com` registry's for `example.com` | Only when you choose **Check the parent zone** |
 | The API key, and through it full control of the zones | [dnshelper](https://github.com/danb35/ns8-dnshelper), on its request | Only if dnshelper is installed in the cluster. See [dnshelper's own page](https://github.com/danb35/ns8-dnshelper/blob/master/TERMS.md) |
 | Zones, records, DNSSEC private keys, the API key and the secondaries' keys | Your backup destination, encrypted by NS8 | If you have configured backups |
 | PowerDNS's log: zone names, transfers, notifications, and the addresses of the servers involved. Queries are not logged | NS8's log server, and any syslog server or Cloud Log Manager you forward logs to | As it happens |
 
-Your registrar receives your DS record and glue records only when you enter them there yourself:
-powerdns does not contact registrars. How Cloudflare, Quad9 and your registrar handle data is
-governed by their own terms.
+Your registrar receives your name servers, glue records and DS record only when you enter them there
+yourself: powerdns does not contact registrars. How Cloudflare, Quad9, the registries and your
+registrar handle data is governed by their own terms.
 
 ## What is kept on the node
 

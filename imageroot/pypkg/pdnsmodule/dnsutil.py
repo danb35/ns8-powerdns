@@ -5,7 +5,7 @@
 """DNS names, record conversion and a minimal stub query, standard library only.
 
 The NS8 agent environment has no DNS library, and the module needs only a SOA
-serial and "does a DS record exist".
+serial, "does a DS record exist" and what a parent zone delegates.
 """
 
 import ipaddress
@@ -20,8 +20,15 @@ _LABEL = re.compile(r'^(?!-)[A-Za-z0-9_-]{1,63}(?<!-)$')
 TARGET_TYPES = {'CNAME', 'DNAME', 'MX', 'NS', 'PTR', 'SRV'}
 TXT_TYPES = {'TXT', 'SPF'}
 
+QTYPE_A = 1
+QTYPE_NS = 2
 QTYPE_SOA = 6
+QTYPE_AAAA = 28
 QTYPE_DS = 43
+
+RCODE_NOERROR = 0
+RCODE_SERVFAIL = 2
+RCODE_NXDOMAIN = 3
 
 
 def canonical(name):
@@ -161,10 +168,39 @@ def _skip_name(buf, pos):
         pos += length + 1
 
 
-def query(server, name, qtype, port=53, timeout=3.0, recursion=False):
-    """One UDP query. Returns {'rcode': int, 'answers': [(type, rdata bytes)]}.
+def read_name(buf, pos):
+    """The name at pos, following compression pointers, in canonical form."""
+    labels = []
+    for _ in range(128):
+        length = buf[pos]
+        if length == 0:
+            return '.'.join(labels).lower() + '.' if labels else '.'
+        if length & 0xC0 == 0xC0:
+            pos = struct.unpack('!H', buf[pos:pos + 2])[0] & 0x3FFF
+            continue
+        labels.append(buf[pos + 1:pos + 1 + length].decode('ascii', 'replace'))
+        pos += length + 1
+    raise ValueError('compression loop')
 
-    Raises OSError when the server does not answer.
+
+def _records(buf, pos, count):
+    """count resource records from pos: [(owner, type, rdata, rdata_pos)], and the next pos."""
+    out = []
+    for _ in range(count):
+        owner = read_name(buf, pos)
+        pos = _skip_name(buf, pos)
+        rtype, _klass, _ttl, rdlength = struct.unpack('!HHIH', buf[pos:pos + 10])
+        pos += 10
+        out.append((owner, rtype, buf[pos:pos + rdlength], pos))
+        pos += rdlength
+    return out, pos
+
+
+def query(server, name, qtype, port=53, timeout=3.0, recursion=False):
+    """One UDP query.
+
+    Returns {'rcode', 'answers': [(type, rdata, pos)], 'authority' and 'additional':
+    [(owner, type, rdata, pos)], 'raw'}. Raises OSError when the server does not answer.
     """
     qid = random.randint(0, 0xFFFF)
     flags = 0x0100 if recursion else 0
@@ -178,18 +214,21 @@ def query(server, name, qtype, port=53, timeout=3.0, recursion=False):
             if len(buf) >= 12 and struct.unpack('!H', buf[:2])[0] == qid:
                 break
     rcode = buf[3] & 0x0F
-    qdcount, ancount = struct.unpack('!HH', buf[4:8])
+    qdcount, ancount, nscount, arcount = struct.unpack('!HHHH', buf[4:12])
     pos = 12
     for _ in range(qdcount):
         pos = _skip_name(buf, pos) + 4
-    answers = []
-    for _ in range(ancount):
-        pos = _skip_name(buf, pos)
-        rtype, _klass, _ttl, rdlength = struct.unpack('!HHIH', buf[pos:pos + 10])
-        pos += 10
-        answers.append((rtype, buf[pos:pos + rdlength], pos))
-        pos += rdlength
-    return {'rcode': rcode, 'answers': answers, 'raw': buf}
+    sections = []
+    for count in (ancount, nscount, arcount):
+        try:
+            records, pos = _records(buf, pos, count)
+        except (IndexError, struct.error, ValueError):
+            # A truncated reply: keep the sections that were read whole
+            records = []
+        sections.append(records)
+    answers, authority, additional = sections
+    return {'rcode': rcode, 'answers': [(t, d, p) for _o, t, d, p in answers],
+            'answer_records': answers, 'authority': authority, 'additional': additional, 'raw': buf}
 
 
 def soa_serial(server, zone, port=53, timeout=2.0):
@@ -206,12 +245,108 @@ def soa_serial(server, zone, port=53, timeout=2.0):
     return None
 
 
-def ds_published(resolver, zone, timeout=4.0):
-    """True/False: does the parent publish a DS. None: the resolver did not answer."""
+def _address(rtype, rdata):
+    family = socket.AF_INET if rtype == QTYPE_A else socket.AF_INET6
+    return socket.inet_ntop(family, rdata)
+
+
+def resolve_addresses(resolver, name, timeout=3.0):
+    """A and AAAA of name through a resolver; [] when it has none or does not answer."""
+    out = []
+    for qtype in (QTYPE_A, QTYPE_AAAA):
+        try:
+            result = query(resolver, name, qtype, timeout=timeout, recursion=True)
+        except OSError:
+            continue
+        out += [_address(t, d) for t, d, _p in result['answers'] if t == qtype]
+    return out
+
+
+def resolver_status(resolver, zone, timeout=4.0):
+    """How a validating resolver answers the zone's SOA: 'ok', 'servfail', 'nxdomain' or 'error'.
+
+    None when it does not answer. SERVFAIL most often means a DS at the parent that
+    matches no key in the zone, or name servers that do not answer for it.
+    """
+    try:
+        result = query(resolver, zone, QTYPE_SOA, timeout=timeout, recursion=True)
+    except OSError:
+        return None
+    if result['rcode'] == RCODE_SERVFAIL:
+        return 'servfail'
+    if result['rcode'] == RCODE_NXDOMAIN:
+        return 'nxdomain'
+    if result['rcode'] == RCODE_NOERROR and any(t == QTYPE_SOA for t, _d, _p in result['answers']):
+        return 'ok'
+    return 'error'
+
+
+def ds_at_parent(resolver, zone, timeout=4.0):
+    """The DS records the parent publishes, as 'tag algorithm type DIGEST'. None: no answer."""
     try:
         result = query(resolver, zone, QTYPE_DS, timeout=timeout, recursion=True)
     except OSError:
         return None
-    if result['rcode'] not in (0, 3):
+    if result['rcode'] not in (RCODE_NOERROR, RCODE_NXDOMAIN):
         return None
-    return any(rtype == QTYPE_DS for rtype, _rdata, _pos in result['answers'])
+    out = []
+    for rtype, rdata, _pos in result['answers']:
+        if rtype == QTYPE_DS and len(rdata) > 4:
+            tag, algorithm, digest_type = struct.unpack('!HBB', rdata[:4])
+            out.append('%d %d %d %s' % (tag, algorithm, digest_type, rdata[4:].hex().upper()))
+    return sorted(out)
+
+
+def is_public(address):
+    try:
+        return ipaddress.ip_address(address).is_global
+    except ValueError:
+        return False
+
+
+def parent_servers(resolver, zone, timeout=3.0):
+    """The closest enclosing zone that has name servers, and their names. (None, []) if none found."""
+    labels = canonical(zone).rstrip('.').split('.')
+    for i in range(1, len(labels)):
+        parent = '.'.join(labels[i:]) + '.'
+        try:
+            result = query(resolver, parent, QTYPE_NS, timeout=timeout, recursion=True)
+        except OSError:
+            return None, []
+        names = [read_name(result['raw'], p) for _o, t, _d, p in result['answer_records']
+                 if t == QTYPE_NS and _o == parent]
+        if names:
+            return parent, sorted(names)
+    return None, []
+
+
+def delegation(resolver, zone, timeout=3.0):
+    """What the parent zone itself publishes for zone: the NS names and any glue.
+
+    Asks the parent's own servers, not a resolver, because a resolver answers from
+    the child and would hide a registrar entry that differs. Returns None when no
+    parent server answered, else {'parent', 'server', 'name_servers', 'glue', 'nxdomain'}:
+    name_servers is empty when the parent does not delegate the zone.
+    """
+    zone = canonical(zone)
+    parent, servers = parent_servers(resolver, zone, timeout)
+    if not parent:
+        return None
+    for server in servers:
+        for address in resolve_addresses(resolver, server, timeout)[:2]:
+            try:
+                result = query(address, zone, QTYPE_NS, timeout=timeout)
+            except OSError:
+                continue
+            raw = result['raw']
+            # A referral carries the NS in the authority section; a parent that also
+            # serves the child answers them directly.
+            records = [r for r in result['authority'] + result['answer_records'] if r[1] == QTYPE_NS and r[0] == zone]
+            names = sorted({read_name(raw, p) for _o, _t, _d, p in records})
+            glue = {}
+            for owner, rtype, rdata, _p in result['additional']:
+                if rtype in (QTYPE_A, QTYPE_AAAA) and owner in names:
+                    glue.setdefault(owner, []).append(_address(rtype, rdata))
+            return {'parent': parent, 'server': server, 'name_servers': names,
+                    'glue': glue, 'nxdomain': result['rcode'] == RCODE_NXDOMAIN}
+    return None
