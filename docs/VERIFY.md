@@ -72,6 +72,7 @@ needs three nodes; a clone from Rocky to Debian, because of the core issue below
 | 7.1 | Setting names for a combined key | `default-ksk-algorithm=ecdsa256`, `default-zsk-algorithm=` empty; gives one `csk` | Live |
 | 7.2 | Cryptokeys endpoint returns `ds` | Yes, SHA-256 and SHA-384; the module shows SHA-256 | Live |
 | 7.3 | Secondary sets PRESIGNED itself | Yes, and serves RRSIGs with no keys | Live |
+| 7.3 | Serial follows the weekly signature renewal | **No** without SOA-EDIT: RRSIG 20261029–20261119 at stored serial 2026110902. With `INCEPTION-INCREMENT`, a stored serial 0 was served as 2026110501, the week's start. On a 0.1.1 primary given the new `pypkg`, the next reconcile run set it on the existing zone, once, and left the catalog alone | LAN node; live |
 | 8.1 | Secret in task output acceptable | Yes, see below | Source |
 | 8.2 | URL for linking into another module | `/apps/<id>?page=<page>`, query parameters allowed. dnshelper must add `zone` | Source |
 | 9.3 | A module can hold a role on its own module | Yes: `@any` becomes the pattern `module/powerdns*` | Source; nodes |

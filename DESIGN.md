@@ -164,8 +164,9 @@ address, and local actions call the API there too. On a secondary it is 127.0.0.
 `add-zone` input: the zone name, optional DNSSEC settings (§7) and optional SOA overrides. The
 module creates it through the API:
 
-- `kind: Primary`, `soa_edit_api: DEFAULT`, `api_rectify: true`. dnshelper requires
-  SOA-EDIT-API so that every change raises the serial.
+- `kind: Primary`, `soa_edit_api: DEFAULT`, `soa_edit: INCEPTION-INCREMENT`, `api_rectify: true`.
+  dnshelper requires SOA-EDIT-API so that every change raises the serial. SOA-EDIT raises the
+  served serial once a week as well, for the signatures (§7.3).
 - `catalog`: the instance's producer catalog (§6.1).
 - SOA: the primary NS name, the hostmaster address from the configuration, and module-wide
   timers (refresh, retry, expire, minimum).
@@ -331,6 +332,26 @@ Enabling sets `dnssec: true`, which has PowerDNS create the keys and rectify the
 
 Secondaries receive the signed zone by AXFR and serve it as presigned. **Verified (live):** a
 PowerDNS secondary detects signed transfers and sets PRESIGNED itself.
+
+They keep the signatures of their last transfer. The primary signs on the fly with a validity
+that it renews weekly: inception a week before the current signing week began (a Thursday),
+expiration two weeks after it (**Verified (node):** 20261029 to 20261119, queried on
+2026-11-11). The serial does not change
+with them, so a zone that is not edited would reach its secondaries' signature expiry in about
+three weeks, and validating resolvers would answer SERVFAIL there.
+
+- Every member zone has `SOA-EDIT: INCEPTION-INCREMENT`. A stored serial from before the current
+  signing week is served as that week's `YYYYMMDD01`, so each week the secondaries see a new
+  serial at their SOA refresh, transfer the zone and get fresh signatures. The served serial is
+  never below the stored one.
+- Not `INCEPTION-EPOCH`: it never lowers a serial, and date-style serials (about 2.0e9) are above
+  the epoch time (about 1.8e9), so it would do nothing.
+- The stored and served serials then differ, and comparisons with what secondaries hold use the
+  served one (`edited_serial`).
+- The catalog keeps no SOA-EDIT (§6.1).
+- Zones created before this was set get it from the primary's reconcile, once; the marker file
+  `soa-edit-applied` is left out of the backup, so a restored primary checks again. It is set on
+  unsigned zones too, so that turning DNSSEC off never makes the served serial go back.
 
 ### 7.4 Keys and rollover
 

@@ -109,7 +109,7 @@ class Replication(unittest.TestCase):
         """Serial on both secondaries equals the primary's, keeping members reconciled."""
         def done():
             self.reconcile()
-            want = self.p.zone(zone, rrsets=False)['serial']
+            want = core.served_serial(self.p.zone(zone, rrsets=False))
             return all((c.zone_or_none(zone) or {}).get('serial') == want for c in (self.s1, self.s2))
         return wait_for(done, seconds)
 
@@ -125,7 +125,7 @@ class Replication(unittest.TestCase):
         core.add_zone(self.p, self.settings, 'notify.test')
         self.assertTrue(self.wait_replicated('notify.test.'))
         core.set_records(self.p, 'notify.test', [{'name': 'www', 'type': 'A', 'ttl': 60, 'data': '192.0.2.7'}])
-        want = self.p.zone('notify.test.', rrsets=False)['serial']
+        want = core.served_serial(self.p.zone('notify.test.', rrsets=False))
         # Without the timer: only NOTIFY can bring this. The primary's cycle is 10s.
         self.assertTrue(wait_for(lambda: all(c.zone('notify.test.', rrsets=False)['serial'] == want
                                              for c in (self.s1, self.s2)), 25))
@@ -237,10 +237,26 @@ class Replication(unittest.TestCase):
                                          query_serial=lambda _a, z: 1 if z == self.settings.catalog else None)
         self.assertTrue(status[0]['reachable'])
 
+    def test_soa_edit_on_new_and_old_zones(self):
+        # A new zone gets it; a zone without it (as 0.1.1 created them) gets it from ensure_soa_edit.
+        core.add_zone(self.p, self.settings, 'edit.test', dnssec=True)
+        self.assertEqual(self.p.zone('edit.test.', rrsets=False)['soa_edit'], core.SOA_EDIT)
+        self.p.update_zone('edit.test.', {'soa_edit': ''})
+        self.assertIn('edit.test', core.ensure_soa_edit(self.p, self.settings))
+        self.assertEqual(self.p.zone('edit.test.', rrsets=False)['soa_edit'], core.SOA_EDIT)
+        self.assertNotIn('edit.test', core.ensure_soa_edit(self.p, self.settings))
+        # The catalog keeps its epoch serial (DESIGN 6.1).
+        self.assertEqual(self.p.zone(CATALOG, rrsets=False).get('soa_edit', ''), '')
+        # What is answered is the edited serial, never below the stored one.
+        info = self.p.zone('edit.test.', rrsets=False)
+        served = dnsutil.soa_serial('127.0.0.1', 'edit.test', port=PORTS['p'][1])
+        self.assertEqual(served, core.served_serial(info))
+        self.assertGreaterEqual(served, info['serial'])
+
     def test_serial_query(self):
         core.add_zone(self.p, self.settings, 'query.test')
         serial = dnsutil.soa_serial('127.0.0.1', 'query.test', port=PORTS['p'][1])
-        self.assertEqual(serial, self.p.zone('query.test.', rrsets=False)['serial'])
+        self.assertEqual(serial, core.served_serial(self.p.zone('query.test.', rrsets=False)))
         self.assertIsNone(dnsutil.soa_serial('127.0.0.1', 'query.test', port=1, timeout=0.3))
 
     def test_unsigned_axfr_is_refused(self):
