@@ -301,6 +301,23 @@ def leave_standby_if_possible(rdb):
             publish(event)
 
 
+def ensure_soa_edit(values):
+    """Once per instance: zones created by 0.1.1 and earlier have no SOA-EDIT (core.SOA_EDIT).
+
+    The marker is left out of the backup, so a restore or clone of an old
+    backup checks its zones again.
+    """
+    marker = config.path('soa-edit-applied')
+    if os.path.exists(marker):
+        return
+    pdns = api_client(values)
+    fixed = core.ensure_soa_edit(pdns, settings(values))
+    if fixed:
+        log('set SOA-EDIT on: %s' % ', '.join(fixed))
+    with open(marker, 'w'):
+        pass
+
+
 def reconcile(values=None):
     values = values if values is not None else config.env()
     role = values.get('POWERDNS_ROLE')
@@ -318,6 +335,7 @@ def reconcile(values=None):
     if role == 'primary':
         leave_standby_if_possible(rdb)
         if not config.is_standby():
+            ensure_soa_edit(values)
             register_service(rdb)
             if other_primaries(rdb):
                 log('another primary is registered: %s' % ', '.join(p['module_id'] for p in other_primaries(rdb)), agent.SD_WARNING)

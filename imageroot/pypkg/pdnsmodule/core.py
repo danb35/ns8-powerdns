@@ -117,6 +117,29 @@ def ensure_catalog(pdns, settings):
     apply_peers_to_zone(pdns, settings, settings.catalog)
 
 
+# PowerDNS renews signatures weekly but leaves the serial alone, so the secondaries
+# of a signed zone that does not change would keep their copy until its signatures
+# expired, three weeks later (DESIGN 7.3). INCEPTION-INCREMENT raises the served
+# serial at the start of each signing week. INCEPTION-EPOCH would not: it never
+# lowers a serial, and date-style serials are above the epoch time.
+SOA_EDIT = 'INCEPTION-INCREMENT'
+
+
+def served_serial(zone_info):
+    """The serial PowerDNS answers with, after SOA-EDIT: what secondaries hold."""
+    return zone_info.get('edited_serial') or zone_info.get('serial', 0)
+
+
+def ensure_soa_edit(pdns, settings):
+    """Give SOA_EDIT to member zones created before it was set. Returns their names."""
+    fixed = []
+    for info in member_zones(pdns, settings):
+        if pdns.zone(info['name'], rrsets=False).get('soa_edit') != SOA_EDIT:
+            pdns.update_zone(info['name'], {'soa_edit': SOA_EDIT})
+            fixed.append(dnsutil.display(info['name']))
+    return fixed
+
+
 def is_member_zone(zone_info, settings):
     return zone_info['name'] != settings.catalog and zone_info['kind'].lower() in ('master', 'primary', 'native')
 
@@ -220,6 +243,7 @@ def add_zone(pdns, settings, name, dnssec=False, denial='nsec3', soa=None):
         'name': zone,
         'kind': 'Primary',
         'soa_edit_api': 'DEFAULT',
+        'soa_edit': SOA_EDIT,
         'api_rectify': True,
         'catalog': settings.catalog,
         'master_tsig_key_ids': [_key_id(p['tsig_key']) for p in peers],
@@ -292,7 +316,7 @@ def get_zone(pdns, settings, name):
     result = {
         'zone': dnsutil.display(zone),
         'kind': kind,
-        'serial': info.get('serial', 0),
+        'serial': served_serial(info),
         'dnssec': bool(info.get('dnssec')),
         'denial': ('nsec3' if info.get('nsec3param') else 'nsec') if info.get('dnssec') else None,
         # A secondary holds no keys, so its copy has no DS to show (DESIGN 3).
@@ -310,7 +334,7 @@ def list_zones(pdns, settings):
         if info['name'] == settings.catalog or info['kind'].lower() in ('consumer', 'producer'):
             continue
         entry = {'zone': dnsutil.display(info['name']), 'kind': info['kind'].lower(),
-                 'serial': info.get('serial', 0), 'dnssec': bool(info.get('dnssec'))}
+                 'serial': served_serial(info), 'dnssec': bool(info.get('dnssec'))}
         if entry['kind'] in ('slave', 'secondary'):
             entry['last_check'] = info.get('last_check', 0)
             entry['transferred'] = info.get('serial', 0) != 0
@@ -442,7 +466,7 @@ def secondaries_status(pdns, settings, query_serial=dnsutil.soa_serial):
     A peer is reachable when it answers for the catalog, which every secondary holds, or for any
     member zone; with no member zones the catalog alone decides.
     """
-    zones = [(z['name'], z.get('serial', 0), z.get('notified_serial', 0)) for z in member_zones(pdns, settings)]
+    zones = [(z['name'], served_serial(z), z.get('notified_serial', 0)) for z in member_zones(pdns, settings)]
     out = []
     for peer in load_peers(settings):
         if peer.get('kind') != 'internal':
