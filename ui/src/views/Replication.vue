@@ -200,11 +200,8 @@
             <template slot="text-right">{{ $t("settings.enabled") }}</template>
           </NsToggle>
 
-          <cv-radio-group
-            :legend="$t('external.zones')"
-            :vertical="true"
-            class="mg-bottom-md"
-          >
+          <div class="bx--label">{{ $t("external.zones") }}</div>
+          <cv-radio-group :vertical="true" class="mg-bottom-md">
             <cv-radio-button
               v-model="form.zonesMode"
               name="zones-mode"
@@ -232,11 +229,8 @@
             </div>
           </div>
 
-          <cv-radio-group
-            :legend="$t('external.auth')"
-            :vertical="true"
-            class="mg-bottom-md"
-          >
+          <div class="bx--label">{{ $t("external.auth") }}</div>
+          <cv-radio-group :vertical="true" class="mg-bottom-md">
             <cv-radio-button
               v-model="form.auth"
               name="auth"
@@ -252,13 +246,10 @@
           </cv-radio-group>
 
           <template v-if="form.auth === 'tsig'">
-            <cv-radio-group
-              v-if="form.id && form.hadKey"
-              :legend="$t('external.key')"
-              :vertical="true"
-              class="mg-bottom-md"
-            >
+            <div class="bx--label">{{ $t("external.key") }}</div>
+            <cv-radio-group :vertical="true" class="mg-bottom-md">
               <cv-radio-button
+                v-if="form.hadKey"
                 v-model="form.keyMode"
                 name="key-mode"
                 value="keep"
@@ -268,32 +259,21 @@
                 v-model="form.keyMode"
                 name="key-mode"
                 value="generate"
-                :label="$t('external.key_generate_new')"
+                :label="
+                  form.hadKey
+                    ? $t('external.key_generate_new')
+                    : $t('external.key_generate')
+                "
               />
               <cv-radio-button
                 v-model="form.keyMode"
                 name="key-mode"
                 value="paste"
-                :label="$t('external.key_paste')"
-              />
-            </cv-radio-group>
-            <cv-radio-group
-              v-else
-              :legend="$t('external.key')"
-              :vertical="true"
-              class="mg-bottom-md"
-            >
-              <cv-radio-button
-                v-model="form.keyMode"
-                name="key-mode"
-                value="generate"
-                :label="$t('external.key_generate')"
-              />
-              <cv-radio-button
-                v-model="form.keyMode"
-                name="key-mode"
-                value="paste"
-                :label="$t('external.key_paste')"
+                :label="
+                  form.hadKey
+                    ? $t('external.key_paste')
+                    : $t('external.key_paste_new')
+                "
               />
             </cv-radio-group>
             <template v-if="form.keyMode !== 'keep'">
@@ -635,6 +615,23 @@ export default {
         .map((l) => l.trim())
         .filter((l) => l);
     },
+    // The action's schema refuses these too, but with codes meant for developers.
+    validate(data) {
+      let ok = true;
+      if (!data.name) {
+        this.error.name = this.$t("errors.name_required");
+        ok = false;
+      }
+      if (!data.notify.length) {
+        this.error.notify = this.$t("errors.notify_required");
+        ok = false;
+      }
+      if (data.auth === "ip" && !data.transfer_from.length) {
+        this.error.transfer_from = this.$t("errors.transfer_from_required");
+        ok = false;
+      }
+      return ok;
+    },
     async save() {
       const f = this.form;
       if (!f) return;
@@ -655,6 +652,7 @@ export default {
         if (f.id && f.keyMode === "generate") data.tsig.regenerate = true;
       }
       if (f.id) data.id = f.id;
+      if (!this.validate(data)) return;
       this.loading.save = true;
       try {
         const out = await this.runTask(

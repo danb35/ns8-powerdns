@@ -222,6 +222,7 @@
         "key_generate_new": "Generate a new key, revoking the current one",
         "key_keep": "Keep the current key",
         "key_paste": "Use a key issued by the provider, revoking the current one",
+        "key_paste_new": "Use a key issued by the provider",
         "key_name": "Key name",
         "key_name_helper": "Leave empty for powerdns-<id>, unless the provider dictates a name.",
         "algorithm": "Algorithm",
