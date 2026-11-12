@@ -165,7 +165,9 @@ on the node.
 The Replication page shows each external secondary as *In sync*, a number of zones behind, or *Not
 answering*, by asking its NOTIFY addresses for each zone. Some providers' NOTIFY addresses do not
 answer queries, so *Not answering* does not always mean something is wrong. An external secondary
-can always be removed; its name servers then leave the NS records of its zones.
+can always be removed; its name servers then leave the NS records of its zones, and its key, or the
+addresses it was allowed to transfer from, stop working at once. The copy of the zones it already
+holds stays at the provider: delete the zones there too.
 
 Some providers let you use name servers under your own domain, such as `ns3.example.com`. Such a
 name inside the zone needs glue records at the registrar, with the addresses the provider gives you
@@ -194,7 +196,8 @@ registrar](#at-the-registrar)).
 - **The key is a secret.** Anyone who has it can read the zones given to that secondary. It is part
   of the primary's backup.
 - After a restore or a move of the primary to another node, its public address may change. Update it
-  at the provider if the provider allows transfers by address.
+  at the provider, which transfers from the address it was given and may accept NOTIFY only from
+  there.
 
 ## Adding a zone
 
@@ -339,15 +342,18 @@ Turning DNSSEC off deletes the zone's keys at once. **Remove the DS record at th
 and wait for it to expire (often one day): until then, validating resolvers reject the domain.
 Details asks for confirmation, and reminds you of this.
 
-Removing a zone deletes it, its records and its keys, here and on every secondary. The same applies:
-if the zone is signed, remove the DS at the registrar first. If the domain should keep working,
-point its name servers somewhere else before removing the zone.
+Removing a zone deletes it, its records and its keys, here and on every secondary in the cluster.
+The same applies: if the zone is signed, remove the DS at the registrar first. If the domain should
+keep working, point its name servers somewhere else before removing the zone. External secondaries
+can no longer transfer it, but keep their copy, and may go on answering for it, until you delete it
+at the provider.
 
 ## Backup, restore and moving the primary
 
-The primary's backup holds its zones, records and DNSSEC keys. A restore brings back the same keys,
-so the DS at the registrar stays valid. A secondary's backup holds only its settings: after a
-restore, it copies the zones from the primary again.
+The primary's backup holds its zones, records and DNSSEC keys, and its external secondaries with
+their keys. A restore brings back the same keys, so the DS at the registrar stays valid, and
+external secondaries keep working without a new key. A secondary's backup holds only its settings:
+after a restore, it copies the zones from the primary again.
 
 A restored or cloned primary waits in **standby** while the original still exists: it answers for
 the zones but takes no changes. It takes over within a minute of the original being removed, which
@@ -356,10 +362,11 @@ themselves.
 
 If the new node has different public addresses, update the **Public listen addresses** in Settings,
 then the glue records at the registrar of every domain that has them. Check each zone with **Check
-the parent zone** afterwards.
+the parent zone** afterwards. Give the new address to the provider of each external secondary
+too: it transfers from the address it was given, and may only accept NOTIFY from there.
 
-Because the backup holds the DNSSEC private keys, treat your backup destination as sensitive. NS8
-encrypts backups.
+Because the backup holds the DNSSEC private keys and the external secondaries' keys, treat your
+backup destination as sensitive. NS8 encrypts backups.
 
 ## When something goes wrong
 
@@ -383,7 +390,14 @@ A few more things that look like problems and are not:
 - **A new zone shows *Waiting for the first transfer* on a secondary.** A new zone reaches the
   secondaries within about a minute.
 - **The serial of a zone is a date followed by two digits.** That is the usual convention; it rises
-  with each change.
+  with each change. It also jumps to the current week's date each Thursday, when the signatures are
+  renewed, so that the secondaries copy the zone again: a secondary that is a few minutes behind
+  then is catching up.
+- **An external secondary shows *Not answering*.** Some providers' NOTIFY addresses accept
+  NOTIFY but do not answer queries. If the provider's name servers answer for the zone with the
+  primary's serial, all is well.
+- **An external secondary is behind for a while.** Providers check for changes on their own
+  schedule, often within minutes of a NOTIFY but sometimes only at the zone's refresh interval.
 - **Check the parent zone says the parent lists other name servers, a day after you changed them.**
   Some registries publish changes once a day, and some registrars send them in batches. Wait, then
   check again.

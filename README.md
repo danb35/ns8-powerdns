@@ -2,7 +2,8 @@
 
 An authoritative DNS server for [NethServer 8](https://github.com/NethServer/ns8-core), built on
 [PowerDNS Authoritative](https://doc.powerdns.com/authoritative/). It hosts zones, signs them with
-DNSSEC, and replicates them to secondary instances on other nodes of the cluster.
+DNSSEC, and replicates them to secondary instances on other nodes of the cluster and, if you
+choose, to secondary servers outside it, such as a provider's secondary DNS service.
 
 It works on its own, with a basic Records page, and is designed to be driven by
 [ns8-dnshelper](https://github.com/danb35/ns8-dnshelper) 0.5.0 or later, which adopts its zones
@@ -91,8 +92,8 @@ The [user guide](docs/USER-GUIDE.md#at-the-registrar) explains each entry.
 ## Replication
 
 A new secondary registers with the primary and receives its own TSIG key. It learns the zones from a
-catalog zone (RFC 9432), so new and removed zones reach it without any action. Transfers need that key:
-no address is allowed to transfer a zone without one. All replication travels over the cluster VPN.
+catalog zone (RFC 9432), so new and removed zones reach it without any action. Transfers need that key,
+and replication to secondaries in the cluster travels over the cluster VPN.
 
 A record change reaches the secondaries within about ten seconds. A new zone takes up to a minute
 more, because a timer on the secondary gives each new zone its transfer key.
@@ -102,17 +103,18 @@ page.
 
 Secondaries outside the cluster, such as a provider's secondary DNS service, are added by hand on the
 Replication page, or with `add-external-secondary`. Each one is given all zones or a chosen list,
-and transfers with a TSIG key, or by source address for providers that cannot use TSIG. These
-transfers cross the internet. The [user guide](docs/USER-GUIDE.md#external-secondaries) explains the
-privacy and security trade-offs.
+and transfers with a TSIG key, or by source address for providers that cannot use TSIG; those
+addresses are the only ones allowed to transfer without a key. External secondaries never receive
+the catalog. Their transfers cross the internet, unencrypted. The
+[user guide](docs/USER-GUIDE.md#external-secondaries) explains the privacy and security trade-offs.
 
     api-cli run module/powerdns1/add-external-secondary --data '{"name":"Provider","notify":["203.0.113.53"],"ns_names":["ns1.provider.example"],"zones":["example.com"]}'
 
 ## Backup, clone and move
 
 A primary's backup holds a consistent copy of the database, including the DNSSEC keys, so the DS at
-the registrar stays valid after a restore. A secondary's backup holds its configuration only, and it
-transfers its zones again.
+the registrar stays valid after a restore. It also holds the external secondaries and their keys.
+A secondary's backup holds its configuration only, and it transfers its zones again.
 
 A clone or restore of a primary starts in **standby** while another primary exists: it serves its
 zones but takes no changes. It takes over within a minute of the other primary being removed, which is
