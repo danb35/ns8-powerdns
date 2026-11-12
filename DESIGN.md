@@ -44,8 +44,7 @@ Node). Then:
 
 - Recursion or forwarding. The server never answers for names it is not authoritative for, so
   it cannot be an open resolver. LAN resolution stays with dnsmasq or the Samba DC.
-- External peers, meaning secondaries outside the cluster or primaries outside it. The data
-  model reserves room for them (§6.5) so that adding them later is additive.
+- Primaries outside the cluster (§12). Secondaries outside it are supported since 0.2 (§6.6).
 - A full DNS manager. Record editing beyond the basics belongs in dnshelper.
 - DNSSEC key rollover automation (§7.4).
 
@@ -106,7 +105,7 @@ The error names that module, and the instance's own key does not count. The UI t
 "secondary", with that primary preselected.
 
 - A secondary still names its primary by module UUID. This keeps the data model ready for
-  external primaries later (§6.5); it does not mean several cluster primaries.
+  external primaries later (§12); it does not mean several cluster primaries.
 - **Verified (source):** a replica may lag on a newly added node, so actions read service keys from
   the leader and use the local replica only when the leader is down.
 - Two installs racing to become primary at the same moment are not guarded against in v1. The
@@ -181,7 +180,8 @@ Each instance has an `ns_name`, the public host name it answers as (`ns1.example
 an `advertise` flag, on by default.
 
 - The apex NS RRset of every zone is the `ns_name` of every advertised instance: the primary
-  plus registered secondaries.
+  plus registered secondaries, plus the `ns_names` of each advertised external secondary that
+  receives the zone (§6.6).
 - When a secondary registers or unregisters, the primary rewrites the NS RRset of every zone.
   The change is one API call per zone.
 - `add-zone` warns when an `ns_name` lies inside the zone being created, because the registrar
@@ -275,27 +275,97 @@ The primary looks for changed serials each `xfr-cycle-interval`. It is 10 second
 default 60, which gave 6 to 11 seconds end to end when tested between two nodes. A new zone took about
 a minute and a removed one 8 seconds. SOA refresh is the safety net if a NOTIFY is lost.
 
-### 6.5 Room for external peers (not in v1)
+### 6.5 Peers
 
-Store replication peers on the primary as a list in `state/peers.json`, not as an implied set
-of cluster modules:
+Replication peers are stored on the primary as a list in `state/peers.json`, not as an implied set
+of cluster modules. Readers ignore kinds they do not know rather than fail.
 
 ```json
 {"peers": [
   {"id": "powerdns2", "kind": "internal", "address": "10.5.4.2", "tsig_key": "powerdns-powerdns2",
-   "ns_name": "ns2.example.com", "advertise": true, "catalog": true}
+   "ns_name": "ns2.example.com", "advertise": true, "catalog": true, "addresses": ["198.51.100.2"]},
+  {"id": "ext1", "kind": "external", "name": "Example DNS", "notify": ["203.0.113.53"],
+   "auth": "tsig", "tsig_key": "powerdns-ext1", "transfer_from": [],
+   "ns_names": ["ns1.example-dns.net", "ns2.example-dns.net"], "advertise": true, "zones": "all"}
 ]}
 ```
 
-- A later `kind: "external"` peer is the same record, entered by hand: a public address, a key
-  pasted in or generated, and `catalog` false for providers that do not consume catalogs. For
-  those, the primary would add the peer per zone (`ALSO-NOTIFY` and `TSIG-ALLOW-AXFR` metadata).
-- A secondary of an external primary would be a zone with `kind: Secondary` and its own
-  `masters` and key. The zone record keeps a `source` field (`local` in v1) for this.
-- v1 code only writes `kind: "internal"` peers. Readers must ignore unknown kinds rather than
-  fail.
-- v1 peers also carry `addresses`, the secondary's public listen addresses, so `add-zone` can report
-  glue for an NS name inside the zone (§5.2).
+Internal peers also carry `addresses`, the secondary's public listen addresses, so `add-zone` can
+report glue for an NS name inside the zone (§5.2).
+
+### 6.6 External secondaries
+
+A secondary outside the cluster: a provider's secondary DNS service, or a BIND, Knot, NSD or
+PowerDNS server run by someone else. The primary sends it NOTIFY and lets it transfer the zones it
+is given. It is entered by hand on the Replication page; nothing is discovered.
+
+**Record** (`kind: "external"`):
+
+- `id`: `ext1`, `ext2`, ..., assigned by the module and never reused while the peer exists.
+- `name`: a label for the UI, unique among external peers.
+- `notify`: the addresses to send NOTIFY to, one or more IPv4 or IPv6 addresses. Providers
+  document them; they are often not the addresses of the advertised name servers.
+- `auth`: `tsig` (the default) or `ip`.
+- `tsig_key`: with `tsig`, the name of the peer's key in PowerDNS.
+- `transfer_from`: with `ip`, the addresses or networks the provider transfers from. Required for
+  `ip`, unused for `tsig`.
+- `ns_names`: the provider's name servers, zero or more.
+- `advertise`: whether `ns_names` go into the apex NS of the zones it receives.
+- `zones`: `"all"`, every member zone including those added later, or a list of zone names.
+
+**Zones.** An external peer never receives the catalog (§6.1): it would learn every zone hosted
+here, including those it is not given, and few providers consume catalogs anyway. Its zones are
+configured one by one instead. `apply_peers_to_zone` gives each zone, besides the internal peers,
+every external peer whose `zones` covers it:
+
+- `tsig`: its key is added to `TSIG-ALLOW-AXFR` (the zone's `master_tsig_key_ids`);
+- `ip`: its `transfer_from` entries are added to the zone's `ALLOW-AXFR-FROM` metadata;
+- in both cases its `notify` addresses are added to `ALSO-NOTIFY`.
+
+Adding a zone applies the peers with `"all"`. Removing a zone removes it from every list.
+Changing a peer's `zones` re-applies every member zone.
+
+**Keys.** With `tsig`, the administrator either lets the module generate the key or pastes the one
+the provider issued. The key name defaults to `powerdns-<id>`; some providers dictate it, so it
+can be given. The algorithm is one of PowerDNS's (`hmac-md5`, `hmac-sha1`, `hmac-sha224`,
+`hmac-sha256`, `hmac-sha384`, `hmac-sha512`), `hmac-sha256` by default. A key name already in use,
+by an internal peer or another external one, is refused. The secret is returned by
+`add-external-secondary` and by `get-external-secondary-key`, for the administrator to copy to the
+provider; `update-external-secondary` can replace it, generated or pasted, which revokes the old one
+at once. Removing the peer deletes its key.
+
+**IP-only transfers.** For providers that cannot use TSIG. The global `allow-axfr-ips` stays empty
+(§6.3): the per-zone `ALLOW-AXFR-FROM` grants the transfer for that zone only. Every entry must be
+at least a /24 for IPv4 and a /48 for IPv6, so that a typo cannot open a zone to a large part of the
+internet. The UI marks such a peer and warns that anyone who can send from those addresses can read
+the zones it is given.
+
+**NS records.** An advertised external peer adds its `ns_names` to the apex NS of the zones it
+receives, so the apex NS now depends on the zone (§5.2). `get-zone` and `check-delegation` list
+them like any other name server, marked `external`. Some providers offer name servers under the
+customer's own domain (`ns3.example.com`); such a name inside the zone needs glue, but its addresses
+are the provider's, which the module does not know. The Zones page then tells the administrator to
+ask the provider for them, and `check-delegation` checks only that the parent publishes glue for that
+name, not which addresses.
+
+**Transport.** Transfers and NOTIFY to an external peer cross the internet on port 53, not the
+cluster VPN. TSIG authenticates them and protects them from tampering, but does not encrypt them:
+an observer on the path can read the zone. PowerDNS Authoritative does not offer zone transfers
+over TLS (RFC 9103), so this cannot be avoided; the user guide says so. NOTIFY leaves from the
+node's public address, or from its NAT address, which is what the provider's ACL must allow. Port
+53 is already open (§4.3).
+
+**Status.** `list-secondaries` reports external peers too: per given zone, the serial at the first
+`notify` address that answers, compared with the primary's served serial. A peer whose notify
+addresses do not answer queries is shown as *Not answering*, which is informational: some
+providers' NOTIFY targets do not serve the zones. An external peer can always be removed.
+
+**Backup.** External peers are in `peers.json` and their keys in the database, so both are part of
+the primary's backup. A restore to another node changes the address NOTIFY comes from, which an
+IP-based provider ACL may refuse.
+
+**Not in this version:** external peers that consume a catalog of their own, and external
+primaries (a zone of `kind: Secondary` transferred from outside the cluster; see §12).
 
 ## 7. DNSSEC
 
@@ -462,6 +532,7 @@ naming the modules.
 | `get-records` | ✓ | ✓ | Read-only on secondaries |
 | `set-records`, `delete-records` | ✓ | | Refused while dnshelper manages the zone (§8.3) |
 | `list-secondaries`, `remove-secondary` | ✓ | | `remove-secondary` is for stale entries; refused with `secondary_reachable` while the secondary answers (§6.2) |
+| `add-external-secondary`, `update-external-secondary`, `remove-external-secondary`, `get-external-secondary-key` | ✓ | | External secondaries (§6.6). `get-external-secondary-key` returns the TSIG secret |
 | `get-dns-status` | ✓ | ✓ | Per-zone serials and replication lag (secondary serial vs. primary's). The core owns `get-status`, which still provides service state |
 
 Records in the powerdns actions use dnshelper's shape (`name` relative to the zone, `type`,
@@ -525,7 +596,8 @@ Tested on 3.24.0 only. Raise the label when the module starts to use something n
   - when dnshelper manages the zone, a banner: "Records are managed by dnshelper", with a
     button that opens dnshelper's Records page on this zone.
 - **Replication (primary):** secondaries with address, NS name and sync state, and a Remove button
-  for unreachable ones, behind a type-the-name confirmation.
+  for unreachable ones, behind a type-the-name confirmation. Below them, external secondaries,
+  with Add, Edit, Show key and Remove (§6.6).
 - **Status:** service state, per-zone serial and, on a primary, each secondary's lag.
 
 Follow the skill's frontend rules (`Ns*` components first, `isProgressNotified` for long actions).
@@ -594,6 +666,10 @@ variable restored by `06copyenv`.
 ## 12. Open items
 
 1. A manual DNSSEC key-roll action, for a later version.
+2. External primaries: zones of `kind: Secondary` on the primary, transferred from a server outside
+   the cluster and passed on to the internal secondaries. **VERIFY** whether PowerDNS lets a
+   Secondary zone be a member of a producer catalog; if not, the internal secondaries need another
+   way to learn these zones.
 
 ## 13. Community requests (for the release announcement)
 

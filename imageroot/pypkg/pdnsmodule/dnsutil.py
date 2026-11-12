@@ -50,6 +50,12 @@ def is_dns_name(name):
     return len(labels) >= 2 and all(_LABEL.match(label) for label in labels)
 
 
+def is_key_name(name):
+    """A TSIG key name: a domain name, often of a single label such as transfer-key."""
+    stripped = name.strip().rstrip('.')
+    return bool(stripped) and len(stripped) <= 253 and all(_LABEL.match(label) for label in stripped.split('.'))
+
+
 def is_subdomain(name, zone):
     """True when name equals zone or lies inside it."""
     name, zone = canonical(name), canonical(zone)

@@ -60,6 +60,32 @@ settings again re-registers it.
 **Not tested:** a move with a secondary present, which
 needs three nodes; a clone from Rocky to Debian, because of the core issue below.
 
+**External secondaries, 2026-11-12 (two nodes: the primary on Debian 13, Rocky 9.8 as the outside
+server):** the primary ran the `external-secondaries` branch image. A BIND 9.20 container on the Rocky
+node, outside NS8, was added as an external secondary:
+- **TSIG, generated key:** it transferred the signed zones; a record change reached it about 10 seconds
+  later, after a NOTIFY.
+- **Zones:** a zone added later reached a peer given *all zones*. Narrowing the peer to one zone made the
+  others answer NOTAUTH to its key.
+- **Refusals:** the catalog was refused with the peer's key, and an AXFR without a key was refused.
+- **Address only:** switching the peer to address-only revoked the key. The Rocky node then transferred
+  without one and the Mac was refused, and NOTIFY still reached the peer.
+- **Pasted key:** an hmac-sha384 secret pasted in the Replication page's Edit form, with the name left
+  empty, was stored as `powerdns-ext1` with that algorithm, and BIND transferred with it.
+- **Removal:** removing the peer refused its transfers and cleared it from `list-secondaries`.
+
+With a powerdns secondary on the Rocky node as well:
+- **Metadata:** the external key and NOTIFY address were set only on the zone that peer was given, and
+  the catalog named only the internal secondary's key.
+- **The secondary:** it served both zones signed, and the Replication page showed both tables.
+- **Removing the external peer** left the internal secondary's key and NOTIFY in place, and the next
+  change still reached it.
+
+**Mixed versions, same day:** a 0.1.2 secondary followed the branch primary, which had an advertised
+external peer. It received a new signed zone through the catalog and a record change, and served the
+external peer's name server in the apex NS. Updated to the branch image, it stayed registered and in
+sync, and the next change reached it.
+
 ## Results
 
 | Section | Question | Result | How |
@@ -69,6 +95,9 @@ needs three nodes; a clone from Rocky to Debian, because of the core issue below
 | 4.3 | Firewall allows the VPN to reach the API and 53 | Yes: the VPN is the `trusted` zone, where any connection is allowed | Manual; two nodes |
 | 6.1 | Catalog refused outside the VPN | **No**, see below | Live |
 | 6.2 | Members inherit the consumer's TSIG key | **No**: reconcile timer needed | Live |
+| 6.6 | An external peer gets only its zones, never the catalog | Yes: per-zone `TSIG-ALLOW-AXFR`, `ALLOW-AXFR-FROM` and `ALSO-NOTIFY`; the catalog refused the peer's key | LAN nodes; live |
+| 6.6 | NOTIFY reaches a server outside the cluster | Yes, unsigned as for internal secondaries (6.3), with the TSIG key or by address; BIND accepts it with `allow-notify` set to the primary's address | LAN nodes |
+| 6.6 | A 0.1.2 secondary works with a 0.2 primary that has external peers | Yes, before and after updating the secondary | LAN nodes |
 | 7.1 | Setting names for a combined key | `default-ksk-algorithm=ecdsa256`, `default-zsk-algorithm=` empty; gives one `csk` | Live |
 | 7.2 | Cryptokeys endpoint returns `ds` | Yes, SHA-256 and SHA-384; the module shows SHA-256 | Live |
 | 7.3 | Secondary sets PRESIGNED itself | Yes, and serves RRSIGs with no keys | Live |
@@ -150,6 +179,14 @@ browser's language, so a Brazilian browser got `pt`. The UI now tries the region
 (`pt-BR` → `pt_BR`). The code comes from the module template, so other modules built from it likely
 have the same limitation.
 
+**Key names (6.6).** Providers issue TSIG keys with single-label names such as `provider-key`, which
+the host-name check refused. Key names have their own, looser check now.
+
+**Glue for an external secondary's name server (6.6).** A provider name server under the customer's own
+domain, such as `ns3.example.com`, was reported as needing glue with no addresses, and the delegation
+check failed it. The module cannot know the provider's addresses, so it now asks the administrator to
+get them from the provider, and checks only that the parent publishes glue for that name.
+
 **The timer drifted (6.2).** systemd's default `AccuracySec` of one minute put runs two minutes apart, which
 held up a restored secondary for over three minutes. It is 5 seconds now.
 
@@ -169,6 +206,11 @@ held up a restored secondary for over three minutes. It is 5 seconds now.
   case, and dnshelper's `TestLiveTXTQuotesAndBackslashes`; everything else passed on 5.1.5. Upstream:
   PowerDNS/pdns#18159, fixed in master by #18176, not yet in a 5.1 release. The module stays on 5.0.8
   (DESIGN 2).
+- **Testing NOTIFY with a container: pin its address.** PowerDNS sends NOTIFY from one fixed source port,
+  so a UDP connection-tracking entry for it never expires while NOTIFYs keep coming. Restarting a
+  test BIND container under podman gave it a new address, and NOTIFYs kept going to the old one. A
+  test setup, not a module problem: a real secondary does not change address under its own firewall
+  this way. Recreating the container at its first address (`--ip`) fixed it.
 
 ## Decisions beyond the design
 

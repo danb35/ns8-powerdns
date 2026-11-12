@@ -2,10 +2,11 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "list-secondaries output",
     "$id": "http://schema.nethserver.org/powerdns/list-secondaries-output.json",
-    "description": "Registered secondaries, with replication lag",
+    "description": "Registered secondaries, with replication lag, and secondaries outside the cluster",
     "type": "object",
     "required": [
-        "secondaries"
+        "secondaries",
+        "external"
     ],
     "additionalProperties": false,
     "properties": {
@@ -36,6 +37,86 @@
                         "type": "boolean"
                     },
                     "reachable": {
+                        "type": "boolean"
+                    },
+                    "zones_total": {
+                        "type": "integer"
+                    },
+                    "zones_behind": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "external": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "name",
+                    "notify",
+                    "auth",
+                    "tsig_key",
+                    "transfer_from",
+                    "ns_names",
+                    "advertise",
+                    "zones",
+                    "answering",
+                    "zones_total",
+                    "zones_behind"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "notify": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "auth": {
+                        "type": "string"
+                    },
+                    "tsig_key": {
+                        "type": "string"
+                    },
+                    "transfer_from": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "ns_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "advertise": {
+                        "type": "boolean"
+                    },
+                    "zones": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        ]
+                    },
+                    "answering": {
                         "type": "boolean"
                     },
                     "zones_total": {

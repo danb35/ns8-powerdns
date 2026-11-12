@@ -222,7 +222,9 @@
             <template v-for="ns in glueServers">
               <p :key="ns.ns_name + '-intro'" class="registrar-intro">
                 {{
-                  publicAddresses(ns).length
+                  ns.external
+                    ? $t("zones.glue_external", { name: ns.ns_name })
+                    : publicAddresses(ns).length
                     ? $t("zones.glue_intro", { name: ns.ns_name })
                     : $t("zones.glue_no_public", { name: ns.ns_name })
                 }}
@@ -424,6 +426,11 @@ export default {
         lines.push(
           g.ok
             ? { ok: true, text: t("check_glue_ok", { name: g.ns_name }) }
+            : g.external
+            ? {
+                ok: false,
+                text: t("check_glue_external_missing", { name: g.ns_name }),
+              }
             : {
                 ok: false,
                 text: t("check_glue_bad", {

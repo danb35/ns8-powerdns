@@ -157,9 +157,10 @@ def list_zones(_request):
 def add_zone(request):
     values = config.env()
     _require_primary(values)
-    result = core.add_zone(ns.api_client(values), ns.settings(values), request['zone'],
-                           dnssec=request.get('dnssec', False), denial=request.get('denial', 'nsec3'),
-                           soa=_soa_overrides(request))
+    with ns.peers_lock():
+        result = core.add_zone(ns.api_client(values), ns.settings(values), request['zone'],
+                               dnssec=request.get('dnssec', False), denial=request.get('denial', 'nsec3'),
+                               soa=_soa_overrides(request))
     ns.publish('powerdns-zones-changed')
     return result
 
@@ -178,7 +179,8 @@ def update_zone(request):
 def remove_zone(request):
     values = config.env()
     _require_primary(values)
-    core.remove_zone(ns.api_client(values), request['zone'])
+    with ns.peers_lock():
+        core.remove_zone(ns.api_client(values), ns.settings(values), request['zone'])
     ns.publish('powerdns-zones-changed')
     return {}
 
@@ -276,7 +278,8 @@ def unregister_secondary(request):
 def list_secondaries(_request):
     values = config.env()
     _require_primary(values, write=False)
-    return {'secondaries': core.secondaries_status(ns.api_client(values), ns.settings(values))}
+    pdns, settings = ns.api_client(values), ns.settings(values)
+    return {'secondaries': core.secondaries_status(pdns, settings), 'external': core.external_status(pdns, settings)}
 
 
 def remove_secondary(request):
@@ -288,6 +291,34 @@ def remove_secondary(request):
     if any(s['module_id'] == module_id and s['reachable'] for s in status):
         raise core.ActionError('module_id', 'secondary_reachable', module_id)
     return unregister_secondary(request)
+
+
+def add_external_secondary(request):
+    values = config.env()
+    _require_primary(values)
+    with ns.peers_lock():
+        return core.add_external_secondary(ns.api_client(values), ns.settings(values), request)
+
+
+def update_external_secondary(request):
+    values = config.env()
+    _require_primary(values)
+    with ns.peers_lock():
+        return core.update_external_secondary(ns.api_client(values), ns.settings(values), request)
+
+
+def remove_external_secondary(request):
+    values = config.env()
+    _require_primary(values)
+    with ns.peers_lock():
+        core.remove_external_secondary(ns.api_client(values), ns.settings(values), request['id'])
+    return {}
+
+
+def get_external_secondary_key(request):
+    values = config.env()
+    _require_primary(values, write=False)
+    return core.external_secondary_key(ns.api_client(values), ns.settings(values), request['id'])
 
 
 # --- status -----------------------------------------------------------------
@@ -427,6 +458,10 @@ ACTIONS = {
     'unregister-secondary': unregister_secondary,
     'list-secondaries': list_secondaries,
     'remove-secondary': remove_secondary,
+    'add-external-secondary': add_external_secondary,
+    'update-external-secondary': update_external_secondary,
+    'remove-external-secondary': remove_external_secondary,
+    'get-external-secondary-key': get_external_secondary_key,
     'get-dns-status': get_dns_status,
     'get-provider-config': get_provider_config,
 }

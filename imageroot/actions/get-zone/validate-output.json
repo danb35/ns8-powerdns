@@ -63,6 +63,10 @@
                         "type": "boolean",
                         "description": "The name lies inside the zone, so the registrar needs its addresses"
                     },
+                    "external": {
+                        "type": "boolean",
+                        "description": "An external secondary's name server: its addresses come from the provider"
+                    },
                     "addresses": {
                         "type": "array",
                         "items": {
