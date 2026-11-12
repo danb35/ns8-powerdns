@@ -8,7 +8,10 @@ Nothing here touches the node. What these functions need from the instance
 comes in through a Settings object, so tests drive them against a real PowerDNS.
 """
 
+import base64
+import binascii
 import ipaddress
+import os
 
 from . import config, dnsutil
 from .pdnsapi import ApiError
@@ -44,7 +47,7 @@ class Settings:
         self.peers_file = peers_file
 
 
-# --- peers (DESIGN 6.5) -----------------------------------------------------
+# --- peers (DESIGN 6.5, 6.6) ------------------------------------------------
 
 def load_peers(settings):
     return config.read_json(settings.peers_file, {'peers': []})['peers']
@@ -55,8 +58,24 @@ def save_peers(settings, peers):
 
 
 def internal_peers(settings):
-    """v1 acts only on internal peers; unknown kinds are kept but ignored."""
+    """Peers that are secondaries in this cluster. Unknown kinds are kept but ignored."""
     return [p for p in load_peers(settings) if p.get('kind') == 'internal']
+
+
+def external_peers(settings):
+    """Secondaries outside the cluster, entered by hand (DESIGN 6.6)."""
+    return [p for p in load_peers(settings) if p.get('kind') == 'external']
+
+
+def peer_gets_zone(peer, zone):
+    """Whether an external peer is given a zone: all of them, or the ones listed."""
+    if peer.get('zones') == 'all':
+        return True
+    return dnsutil.canonical(zone) in {dnsutil.canonical(z) for z in peer.get('zones') or []}
+
+
+def _unique(items):
+    return list(dict.fromkeys(items))
 
 
 def tsig_key_name(secondary_module_id):
@@ -67,16 +86,20 @@ def _key_id(name):
     return dnsutil.canonical(name)
 
 
-def ns_names(settings):
+def ns_names(settings, zone=None):
+    """The apex NS of a zone: advertised instances, plus advertised external peers given the zone."""
     names = [settings.ns_name] if settings.advertise else []
     names += [p['ns_name'] for p in internal_peers(settings) if p.get('advertise') and p.get('ns_name')]
+    if zone is not None:
+        names += [n for p in external_peers(settings) if p.get('advertise') and peer_gets_zone(p, zone)
+                  for n in p.get('ns_names', [])]
     # A zone must have an NS RRset, even when no instance is advertised.
     return sorted({dnsutil.canonical(n) for n in names}) or [dnsutil.canonical(settings.ns_name)]
 
 
 def _ns_rrset(settings, zone):
     return {'name': zone, 'type': 'NS', 'ttl': 3600, 'changetype': 'REPLACE',
-            'records': [{'content': n, 'disabled': False} for n in ns_names(settings)]}
+            'records': [{'content': n, 'disabled': False} for n in ns_names(settings, zone)]}
 
 
 def _soa_content(settings, soa, serial=0):
@@ -88,10 +111,21 @@ def _soa_content(settings, soa, serial=0):
 
 
 def apply_peers_to_zone(pdns, settings, zone):
-    """Allow each peer's key to transfer the zone and notify each peer of changes."""
-    peers = [p for p in internal_peers(settings) if p.get('catalog', True)]
-    pdns.update_zone(zone, {'master_tsig_key_ids': [_key_id(p['tsig_key']) for p in peers]})
-    pdns.set_metadata(zone, 'ALSO-NOTIFY', [p['address'] for p in peers])
+    """Allow each peer to transfer the zone and notify each peer of changes.
+
+    External peers are applied to the zones they are given, and never to the catalog,
+    which would tell them every zone hosted here (DESIGN 6.6).
+    """
+    internal = [p for p in internal_peers(settings) if p.get('catalog', True)]
+    external = []
+    if dnsutil.canonical(zone) != dnsutil.canonical(settings.catalog or '.'):
+        external = [p for p in external_peers(settings) if peer_gets_zone(p, zone)]
+    keys = [p['tsig_key'] for p in internal] + [p['tsig_key'] for p in external if p.get('auth') == 'tsig']
+    pdns.update_zone(zone, {'master_tsig_key_ids': _unique(_key_id(k) for k in keys)})
+    pdns.set_metadata(zone, 'ALSO-NOTIFY', _unique([p['address'] for p in internal] +
+                                                   [a for p in external for a in p.get('notify', [])]))
+    pdns.set_metadata(zone, 'ALLOW-AXFR-FROM', _unique(n for p in external if p.get('auth') == 'ip'
+                                                       for n in p.get('transfer_from', [])))
 
 
 # --- catalog (DESIGN 6.1) ---------------------------------------------------
@@ -169,7 +203,7 @@ def name_servers(settings, zone):
             known[dnsutil.canonical(peer['ns_name'])] = peer.get('addresses', [])
     return [{'ns_name': dnsutil.display(n), 'glue': dnsutil.is_subdomain(n, zone),
              'addresses': [{'address': a, 'public': dnsutil.is_public(a)} for a in known.get(n, [])]}
-            for n in ns_names(settings)]
+            for n in ns_names(settings, zone)]
 
 
 def _same_ds(ours, theirs):
@@ -238,7 +272,6 @@ def add_zone(pdns, settings, name, dnssec=False, denial='nsec3', soa=None):
     zone = dnsutil.canonical(name)
     if pdns.zone_or_none(zone) is not None:
         raise ActionError('zone', 'zone_exists', name)
-    peers = [p for p in internal_peers(settings) if p.get('catalog', True)]
     pdns.create_zone({
         'name': zone,
         'kind': 'Primary',
@@ -246,14 +279,13 @@ def add_zone(pdns, settings, name, dnssec=False, denial='nsec3', soa=None):
         'soa_edit': SOA_EDIT,
         'api_rectify': True,
         'catalog': settings.catalog,
-        'master_tsig_key_ids': [_key_id(p['tsig_key']) for p in peers],
         'rrsets': [
             {'name': zone, 'type': 'SOA', 'ttl': 3600, 'changetype': 'REPLACE',
              'records': [{'content': _soa_content(settings, soa), 'disabled': False}]},
             _ns_rrset(settings, zone),
         ],
     })
-    pdns.set_metadata(zone, 'ALSO-NOTIFY', [p['address'] for p in peers])
+    apply_peers_to_zone(pdns, settings, zone)
     if dnssec:
         _apply_dnssec(pdns, zone, True, denial)
     return {'zone': dnsutil.display(zone), 'glue': glue_warnings(settings, zone)}
@@ -278,9 +310,19 @@ def update_zone(pdns, settings, name, dnssec=None, denial=None, soa=None):
     return get_zone(pdns, settings, zone)
 
 
-def remove_zone(pdns, name):
+def remove_zone(pdns, settings, name):
+    """Delete the zone, and take it out of the external peers' lists (DESIGN 6.6)."""
     zone = _existing_zone(pdns, name)
     pdns.delete_zone(zone)
+    peers = load_peers(settings)
+    changed = False
+    for peer in peers:
+        if peer.get('kind') == 'external' and isinstance(peer.get('zones'), list):
+            kept = [z for z in peer['zones'] if dnsutil.canonical(z) != zone]
+            changed = changed or len(kept) != len(peer['zones'])
+            peer['zones'] = kept
+    if changed:
+        save_peers(settings, peers)
 
 
 def _existing_zone(pdns, name):
@@ -486,6 +528,235 @@ def secondaries_status(pdns, settings, query_serial=dnsutil.soa_serial):
                     'advertise': bool(peer.get('advertise')), 'reachable': reachable,
                     'zones_total': len(zones), 'zones_behind': behind})
     return sorted(out, key=lambda p: p['module_id'])
+
+
+# --- external secondaries (DESIGN 6.6) -------------------------------------
+
+# Secret sizes follow each algorithm's digest length (RFC 2104 recommends no less).
+TSIG_ALGORITHMS = {'hmac-md5': 16, 'hmac-sha1': 20, 'hmac-sha224': 28, 'hmac-sha256': 32,
+                   'hmac-sha384': 48, 'hmac-sha512': 64}
+# The narrowest network an IP-only peer may name: a typo must not open a zone to
+# a large part of the internet.
+MIN_PREFIX = {4: 24, 6: 48}
+
+
+def generate_tsig_secret(algorithm):
+    return base64.b64encode(os.urandom(TSIG_ALGORITHMS[algorithm])).decode()
+
+
+def _check_secret(secret):
+    try:
+        if base64.b64decode(secret, validate=True):
+            return
+    except (binascii.Error, ValueError):
+        pass
+    raise ActionError('tsig_secret', 'invalid_tsig_secret', '')
+
+
+def _network(entry):
+    try:
+        net = ipaddress.ip_network(entry.strip(), strict=False)
+    except ValueError:
+        raise ActionError('transfer_from', 'invalid_network', entry) from None
+    if net.prefixlen < MIN_PREFIX[net.version]:
+        raise ActionError('transfer_from', 'network_too_wide', entry)
+    return str(net)
+
+
+def normalize_external(request, peers, member_zones_names, peer_id=None):
+    """Check an add or update request and return the peer record it describes, without its key.
+
+    Pure, so the rules are tested without PowerDNS. member_zones_names: the zones the primary
+    hosts, canonical. peer_id: the peer being updated, None for a new one.
+    """
+    others = [p for p in peers if p.get('kind') == 'external' and p.get('id') != peer_id]
+    name = (request.get('name') or '').strip()
+    if not name:
+        raise ActionError('name', 'name_required', '')
+    if any(p.get('name', '').lower() == name.lower() for p in others):
+        raise ActionError('name', 'name_exists', name)
+    notify = _unique(a.strip() for a in request.get('notify') or [] if a.strip())
+    if not notify:
+        raise ActionError('notify', 'notify_required', '')
+    for address in notify:
+        if not dnsutil.is_ip(address):
+            raise ActionError('notify', 'invalid_address', address)
+    notify = [str(ipaddress.ip_address(a)) for a in notify]
+    auth = request.get('auth', 'tsig')
+    transfer_from = []
+    if auth == 'ip':
+        transfer_from = _unique(_network(e) for e in request.get('transfer_from') or [] if e.strip())
+        if not transfer_from:
+            raise ActionError('transfer_from', 'transfer_from_required', '')
+    ns = []
+    for n in request.get('ns_names') or []:
+        if not n.strip():
+            continue
+        if not dnsutil.is_dns_name(n.strip()):
+            raise ActionError('ns_names', 'invalid_ns_name', n)
+        ns.append(dnsutil.canonical(n.strip()).rstrip('.'))
+    zones = request.get('zones', 'all')
+    if zones != 'all':
+        listed = []
+        for z in zones or []:
+            if dnsutil.canonical(z) not in member_zones_names:
+                raise ActionError('zones', 'zone_not_found', z)
+            listed.append(dnsutil.display(dnsutil.canonical(z)))
+        zones = sorted(set(listed))
+    if peer_id is None:
+        used = {int(p['id'][3:]) for p in peers if p.get('kind') == 'external' and p.get('id', '')[3:].isdigit()}
+        peer_id = 'ext%d' % next(i for i in range(1, len(used) + 2) if i not in used)
+    return {'id': peer_id, 'kind': 'external', 'name': name, 'notify': notify, 'auth': auth,
+            'transfer_from': transfer_from, 'ns_names': _unique(ns), 'advertise': bool(request.get('advertise', True)),
+            'zones': zones}
+
+
+def _tsig_request(request):
+    """The key part of a request: algorithm, key name and pasted secret, each optional."""
+    tsig = request.get('tsig') or {}
+    algorithm = tsig.get('algorithm') or 'hmac-sha256'
+    if algorithm not in TSIG_ALGORITHMS:
+        raise ActionError('tsig_algorithm', 'invalid_tsig_algorithm', algorithm)
+    key_name = (tsig.get('key_name') or '').strip()
+    if key_name and not dnsutil.is_key_name(key_name):
+        raise ActionError('tsig_key_name', 'invalid_tsig_key_name', key_name)
+    secret = (tsig.get('secret') or '').strip()
+    if secret:
+        _check_secret(secret)
+    return algorithm, key_name.rstrip('.'), secret
+
+
+def _install_key(pdns, peers, peer, key_name, algorithm, secret, current=None):
+    """Create the peer's key, refusing a name another peer or an unrelated key holds."""
+    key_name = key_name or 'powerdns-%s' % peer['id']
+    if key_name != current:
+        taken = {p.get('tsig_key') for p in peers if p.get('id') != peer['id']}
+        if key_name in taken or pdns.tsigkey(_key_id(key_name)) is not None:
+            raise ActionError('tsig_key_name', 'tsig_key_exists', key_name)
+    else:
+        pdns.delete_tsigkey(_key_id(key_name))
+    pdns.create_tsigkey(key_name, secret or generate_tsig_secret(algorithm), algorithm)
+    peer['tsig_key'] = key_name
+
+
+def _external_view(peer):
+    keys = ('id', 'name', 'notify', 'auth', 'tsig_key', 'transfer_from', 'ns_names', 'advertise', 'zones')
+    out = {k: peer.get(k) for k in keys}
+    out['tsig_key'] = out['tsig_key'] or ''
+    return out
+
+
+def _member_names(pdns, settings):
+    return {dnsutil.canonical(z['name']) for z in member_zones(pdns, settings)}
+
+
+def _reapply(pdns, settings):
+    apply_peers_everywhere(pdns, settings)
+    rewrite_apex_ns(pdns, settings)
+
+
+def add_external_secondary(pdns, settings, request):
+    peers = load_peers(settings)
+    peer = normalize_external(request, peers, _member_names(pdns, settings))
+    if peer['auth'] == 'tsig':
+        algorithm, key_name, secret = _tsig_request(request)
+        _install_key(pdns, peers, peer, key_name, algorithm, secret)
+    save_peers(settings, peers + [peer])
+    _reapply(pdns, settings)
+    out = {'secondary': _external_view(peer)}
+    if peer['auth'] == 'tsig':
+        out['key'] = external_secondary_key(pdns, settings, peer['id'])
+    return out
+
+
+def _external(peers, peer_id):
+    for peer in peers:
+        if peer.get('kind') == 'external' and peer.get('id') == peer_id:
+            return peer
+    raise ActionError('id', 'external_not_found', peer_id)
+
+
+def update_external_secondary(pdns, settings, request):
+    """Change a peer; fields left out keep their value.
+
+    A new key is made when the request pastes a secret or asks for one (tsig.regenerate), changes
+    the algorithm or the key name, or moves the peer to TSIG; the old key is revoked once the zones
+    no longer name it. Moving to IP-only revokes the key.
+    """
+    peers = load_peers(settings)
+    old = _external(peers, request['id'])
+    merged = {k: old.get(k) for k in ('name', 'notify', 'auth', 'transfer_from', 'ns_names', 'advertise', 'zones')}
+    merged.update({k: v for k, v in request.items() if k not in ('id', 'tsig')})
+    peer = normalize_external(merged, peers, _member_names(pdns, settings), peer_id=old['id'])
+    old_key = old.get('tsig_key') or ''
+    new_key = False
+    if peer['auth'] == 'tsig':
+        tsig = request.get('tsig') or {}
+        algorithm, key_name, secret = _tsig_request(request)
+        key_name = key_name or old_key
+        current = pdns.tsigkey(_key_id(old_key)) if old_key and old.get('auth') == 'tsig' else None
+        current_algorithm = (current or {}).get('algorithm', '').rstrip('.')
+        new_key = bool(current is None or secret or tsig.get('regenerate') or key_name != old_key
+                       or (tsig.get('algorithm') and algorithm != current_algorithm))
+        if new_key:
+            _install_key(pdns, peers, peer, key_name, algorithm, secret,
+                         current=old_key if current is not None else None)
+        else:
+            peer['tsig_key'] = old_key
+    save_peers(settings, [peer if p is old else p for p in peers])
+    _reapply(pdns, settings)
+    if old_key and old_key != peer.get('tsig_key'):
+        pdns.delete_tsigkey(_key_id(old_key))
+    out = {'secondary': _external_view(peer)}
+    if new_key:
+        out['key'] = external_secondary_key(pdns, settings, peer['id'])
+    return out
+
+
+def remove_external_secondary(pdns, settings, peer_id):
+    peers = load_peers(settings)
+    peer = _external(peers, peer_id)
+    save_peers(settings, [p for p in peers if p is not peer])
+    _reapply(pdns, settings)
+    if peer.get('tsig_key'):
+        pdns.delete_tsigkey(_key_id(peer['tsig_key']))
+
+
+def external_secondary_key(pdns, settings, peer_id):
+    """The TSIG key to give the provider."""
+    peer = _external(load_peers(settings), peer_id)
+    if peer.get('auth') != 'tsig' or not peer.get('tsig_key'):
+        raise ActionError('id', 'no_tsig_key', peer_id)
+    key = pdns.tsigkey(_key_id(peer['tsig_key']))
+    if key is None:
+        raise ActionError('id', 'no_tsig_key', peer_id)
+    return {'key_name': peer['tsig_key'], 'algorithm': key['algorithm'].rstrip('.'), 'secret': key['key']}
+
+
+def external_status(pdns, settings, query_serial=dnsutil.soa_serial):
+    """Each external peer, with the given zones whose serial at its notify addresses differs."""
+    zones = [(z['name'], served_serial(z)) for z in member_zones(pdns, settings)]
+    out = []
+    for peer in external_peers(settings):
+        given = [(n, s) for n, s in zones if peer_gets_zone(peer, n)]
+        answering = False
+        behind = []
+        for name, serial in given:
+            theirs = None
+            for address in peer.get('notify', []):
+                theirs = query_serial(address, name)
+                if theirs is not None:
+                    break
+            if theirs is None:
+                behind.append(dnsutil.display(name))
+            else:
+                answering = True
+                if theirs != serial:
+                    behind.append(dnsutil.display(name))
+        view = _external_view(peer)
+        view.update({'answering': answering, 'zones_total': len(given), 'zones_behind': behind})
+        out.append(view)
+    return sorted(out, key=lambda p: p['name'].lower())
 
 
 # --- replication, secondary side (DESIGN 6.2, 7.3) --------------------------

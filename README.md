@@ -100,6 +100,14 @@ more, because a timer on the secondary gives each new zone its transfer key.
 If a secondary was removed while the primary was unreachable, remove its entry from the Replication
 page.
 
+Secondaries outside the cluster, such as a provider's secondary DNS service, are added by hand on the
+Replication page, or with `add-external-secondary`. Each one is given all zones or a chosen list,
+and transfers with a TSIG key, or by source address for providers that cannot use TSIG. These
+transfers cross the internet. The [user guide](docs/USER-GUIDE.md#external-secondaries) explains the
+privacy and security trade-offs.
+
+    api-cli run module/powerdns1/add-external-secondary --data '{"name":"Provider","notify":["203.0.113.53"],"ns_names":["ns1.provider.example"],"zones":["example.com"]}'
+
 ## Backup, clone and move
 
 A primary's backup holds a consistent copy of the database, including the DNSSEC keys, so the DS at

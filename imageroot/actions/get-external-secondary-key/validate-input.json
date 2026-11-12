@@ -1,0 +1,17 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "get-external-secondary-key input",
+    "$id": "http://schema.nethserver.org/powerdns/get-external-secondary-key-input.json",
+    "description": "The TSIG key of a secondary outside the cluster",
+    "type": "object",
+    "required": [
+        "id"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "id": {
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}

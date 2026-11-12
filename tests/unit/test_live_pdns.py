@@ -166,7 +166,7 @@ class Replication(unittest.TestCase):
     def test_5_removed_zone_leaves_the_secondaries(self):
         core.add_zone(self.p, self.settings, 'gone.test')
         self.assertTrue(self.wait_replicated('gone.test.'))
-        core.remove_zone(self.p, 'gone.test')
+        core.remove_zone(self.p, self.settings, 'gone.test')
         self.assertTrue(wait_for(lambda: self.s1.zone_or_none('gone.test.') is None
                                  and self.s2.zone_or_none('gone.test.') is None))
 
@@ -253,6 +253,97 @@ class Replication(unittest.TestCase):
         self.assertEqual(served, core.served_serial(info))
         self.assertGreaterEqual(served, info['serial'])
 
+    def axfr(self, zone, key=None):
+        """Whether the primary hands the whole zone over, signed with key when given."""
+        args = ['dig', '+tcp', '+time=3', '+tries=1', '-p', str(PORTS['p'][1]), '@127.0.0.1', zone, 'AXFR']
+        if key:
+            args[1:1] = ['-y', '%s:%s:%s' % (key['algorithm'], key['key_name'], key['secret'])]
+        out = subprocess.run(args, capture_output=True, text=True).stdout
+        return 'Transfer failed' not in out and out.count('\tSOA\t') >= 2
+
+    def test_external_secondaries(self):
+        if not shutil.which('dig'):
+            self.skipTest('needs dig')
+        catalog_before = (self.p.zone(CATALOG, rrsets=False)['master_tsig_key_ids'],
+                          self.p.metadata(CATALOG, 'ALSO-NOTIFY'))
+        core.add_zone(self.p, self.settings, 'ext-a.test', dnssec=True)
+        core.add_zone(self.p, self.settings, 'ext-b.test')
+        ids = []
+        try:
+            out = core.add_external_secondary(self.p, self.settings, {
+                'name': 'Provider', 'notify': ['192.0.2.53'], 'ns_names': ['ns1.provider.example'],
+                'zones': ['ext-a.test']})
+            ids.append(out['secondary']['id'])
+            key = out['key']
+            self.assertEqual((key['key_name'], key['algorithm']), ('powerdns-ext1', 'hmac-sha256'))
+            # Only the zone given: the key transfers it, nothing else.
+            self.assertTrue(self.axfr('ext-a.test', key))
+            self.assertFalse(self.axfr('ext-b.test', key))
+            self.assertFalse(self.axfr('ext-a.test'))
+            self.assertIn('192.0.2.53', self.p.metadata('ext-a.test.', 'ALSO-NOTIFY'))
+            self.assertNotIn('192.0.2.53', self.p.metadata('ext-b.test.', 'ALSO-NOTIFY'))
+            ns = lambda z: sorted(r['data'] for r in core.get_records(self.p, z) if r['type'] == 'NS')
+            self.assertIn('ns1.provider.example.', ns('ext-a.test'))
+            self.assertNotIn('ns1.provider.example.', ns('ext-b.test'))
+            # The internal secondaries still get both.
+            self.assertTrue(self.wait_replicated('ext-a.test.'))
+            # IP-only, from the test network, for ext-b only and not advertised.
+            out = core.add_external_secondary(self.p, self.settings, {
+                'name': 'Plain', 'notify': ['192.0.2.54'], 'auth': 'ip', 'transfer_from': [SUBNET + '.0/24'],
+                'ns_names': ['ns.plain.example'], 'advertise': False, 'zones': ['ext-b.test']})
+            ids.append(out['secondary']['id'])
+            self.assertNotIn('key', out)
+            self.assertTrue(self.axfr('ext-b.test'))
+            self.assertFalse(self.axfr('ext-a.test'))
+            self.assertNotIn('ns.plain.example.', ns('ext-b.test'))
+            # The catalog never names an external peer.
+            self.assertEqual((self.p.zone(CATALOG, rrsets=False)['master_tsig_key_ids'],
+                              self.p.metadata(CATALOG, 'ALSO-NOTIFY')), catalog_before)
+            # A new key revokes the old one at once.
+            upd = core.update_external_secondary(self.p, self.settings, {'id': ids[0], 'tsig': {'regenerate': True}})
+            self.assertNotEqual(upd['key']['secret'], key['secret'])
+            self.assertFalse(self.axfr('ext-a.test', key))
+            self.assertTrue(self.axfr('ext-a.test', upd['key']))
+            key = upd['key']
+            # A pasted key with another name and algorithm replaces it.
+            pasted = {'algorithm': 'hmac-sha512', 'key_name': 'provider-key', 'secret': core.generate_tsig_secret('hmac-sha512')}
+            upd = core.update_external_secondary(self.p, self.settings, {'id': ids[0], 'tsig': pasted})
+            self.assertEqual(upd['key'], {'key_name': 'provider-key', 'algorithm': 'hmac-sha512', 'secret': pasted['secret']})
+            self.assertIsNone(self.p.tsigkey('powerdns-ext1.'))
+            self.assertTrue(self.axfr('ext-a.test', upd['key']))
+            key = upd['key']
+            # A name another peer holds is refused.
+            with self.assertRaises(core.ActionError) as cm:
+                core.update_external_secondary(self.p, self.settings, {'id': ids[0], 'tsig': {'key_name': 'powerdns-powerdns2'}})
+            self.assertEqual(cm.exception.code, 'tsig_key_exists')
+            # Other fields keep their value, and no new key is made.
+            upd = core.update_external_secondary(self.p, self.settings, {'id': ids[0], 'zones': 'all'})
+            self.assertNotIn('key', upd)
+            self.assertEqual(upd['secondary']['notify'], ['192.0.2.53'])
+            self.assertTrue(self.axfr('ext-b.test', key))
+            self.assertIn('ns1.provider.example.', ns('ext-b.test'))
+            # Status: the notify addresses do not answer here.
+            status = {p['id']: p for p in core.external_status(self.p, self.settings, query_serial=lambda _a, _z: None)}
+            self.assertFalse(status[ids[0]]['answering'])
+            self.assertIn('ext-a.test', status[ids[0]]['zones_behind'])
+            self.assertEqual(status[ids[1]]['zones_total'], 1)
+            # Removing a zone takes it out of the lists.
+            core.remove_zone(self.p, self.settings, 'ext-b.test')
+            self.assertEqual(core._external(core.load_peers(self.settings), ids[1])['zones'], [])
+            # Moving to IP-only revokes the key.
+            core.update_external_secondary(self.p, self.settings, {'id': ids[0], 'auth': 'ip',
+                                                                    'transfer_from': ['198.51.100.0/24']})
+            self.assertIsNone(self.p.tsigkey('provider-key.'))
+            self.assertFalse(self.axfr('ext-a.test', key))
+        finally:
+            for peer_id in ids:
+                core.remove_external_secondary(self.p, self.settings, peer_id)
+            for zone in ('ext-a.test', 'ext-b.test'):
+                if self.p.zone_or_none(zone + '.'):
+                    core.remove_zone(self.p, self.settings, zone)
+        self.assertEqual(core.external_peers(self.settings), [])
+        self.assertEqual(self.p.metadata('ext-a.test.', 'ALSO-NOTIFY') if self.p.zone_or_none('ext-a.test.') else [], [])
+
     def test_serial_query(self):
         core.add_zone(self.p, self.settings, 'query.test')
         serial = dnsutil.soa_serial('127.0.0.1', 'query.test', port=PORTS['p'][1])
@@ -277,7 +368,7 @@ class Replication(unittest.TestCase):
         self.assertEqual(ns, ['ns-powerdns2.example.net.', 'ns1.example.net.'])
         # the revoked secondary can no longer transfer, the other still can
         core.set_records(self.p, 'revoke.test', [{'name': 'w', 'type': 'A', 'ttl': 60, 'data': '192.0.2.8'}])
-        want = self.p.zone('revoke.test.', rrsets=False)['serial']
+        want = core.served_serial(self.p.zone('revoke.test.', rrsets=False))
         self.assertTrue(wait_for(lambda: self.s1.zone('revoke.test.', rrsets=False)['serial'] == want, 25))
         self.s2.retrieve('revoke.test.')
         time.sleep(4)

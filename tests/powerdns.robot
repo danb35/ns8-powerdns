@@ -6,6 +6,7 @@ ${ADMIN_USER}    admin
 ${ADMIN_PASSWORD}    Nethesis,1234
 ${module_id}    ${EMPTY}
 ${ZONE}    robot.example
+${EXTERNAL_SECRET}    ${EMPTY}
 
 *** Keywords ***
 Login to cluster-admin
@@ -137,6 +138,23 @@ Check that DNSSEC can be enabled and shows a DS record
     Should Be True    ${out}[dnssec]
     Should Match Regexp    ${out}[ds_records][0]    ^[0-9]+ 13 2 [0-9a-f]{64}$$
 
+Check that an external secondary can be added
+    ${out} =    Run action    add-external-secondary
+    ...    {"name":"Robot provider","notify":["192.0.2.53"],"ns_names":["ns1.provider.example"],"zones":["${ZONE}"]}
+    Should Be Equal    ${out}[secondary][id]    ext1
+    Should Be Equal    ${out}[key][key_name]    powerdns-ext1
+    Set Global Variable    ${EXTERNAL_SECRET}    ${out}[key][secret]
+    ${key} =    Run action    get-external-secondary-key    {"id":"ext1"}
+    Should Be Equal    ${key}[secret]    ${EXTERNAL_SECRET}
+    ${zone} =    Run action    get-zone    {"zone":"${ZONE}"}
+    ${names} =    Evaluate    [n['ns_name'] for n in $zone['name_servers']]
+    Should Contain    ${names}    ns1.provider.example
+    ${list} =    Run action    list-secondaries
+    Should Be Equal    ${list}[external][0][name]    Robot provider
+    Refused action    add-external-secondary    {"name":"robot provider","notify":["192.0.2.54"]}    name_exists
+    Refused action    add-external-secondary
+    ...    {"name":"Wide","notify":["192.0.2.54"],"auth":"ip","transfer_from":["0.0.0.0/0"]}    network_too_wide
+
 Take screenshots of the configured pages
     [Tags]    ui
     Import Library    Browser
@@ -175,6 +193,16 @@ Check that a backup can be restored over the running instance
     Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone}[ds_records][0]
     Run cluster action    remove-backup    {"id":${backup}}
     Run cluster action    remove-backup-repository    {"id":"${repo}[id]"}
+
+Check that the external secondary survived the restore and can be removed
+    ${key} =    Run action    get-external-secondary-key    {"id":"ext1"}
+    Should Be Equal    ${key}[secret]    ${EXTERNAL_SECRET}
+    Run action    remove-external-secondary    {"id":"ext1"}
+    ${list} =    Run action    list-secondaries
+    Should Be Empty    ${list}[external]
+    ${zone} =    Run action    get-zone    {"zone":"${ZONE}"}
+    ${names} =    Evaluate    [n['ns_name'] for n in $zone['name_servers']]
+    Should Not Contain    ${names}    ns1.provider.example
 
 Check that a zone can be removed
     Run action    remove-zone    {"zone":"${ZONE}"}

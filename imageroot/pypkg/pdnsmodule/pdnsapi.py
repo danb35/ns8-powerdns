@@ -106,8 +106,8 @@ class Pdns:
                 return None
             raise
 
-    def create_tsigkey(self, name, secret=None):
-        body = {'name': name, 'algorithm': 'hmac-sha256'}
+    def create_tsigkey(self, name, secret=None, algorithm='hmac-sha256'):
+        body = {'name': name, 'algorithm': algorithm}
         if secret:
             body['key'] = secret
         return self.call('POST', '/tsigkeys', body)
