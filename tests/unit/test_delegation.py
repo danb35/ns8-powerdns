@@ -63,13 +63,27 @@ class Compare(unittest.TestCase):
         return core.compare_delegation('example.com', self.NS, list(ds_expected), seen,
                                        None if ds_published is None else list(ds_published), resolution)
 
+    def test_external_glue_is_checked_for_presence_only(self):
+        # A provider's name server inside the zone: its addresses are not known here.
+        ns = self.NS + [{'ns_name': 'ns3.example.com', 'glue': True, 'external': True, 'addresses': []}]
+        seen = {'ns1.example.com': ['1.1.1.1', '2606:4700:4700::1111']}
+        names = ['ns1.example.com', 'ns2.example.net', 'ns3.example.com']
+        out = core.compare_delegation('example.com', ns, [], observed(names, dict(seen, **{'ns3.example.com': ['203.0.113.9']})),
+                                      [], 'ok')
+        self.assertEqual(out['glue'][1], {'ns_name': 'ns3.example.com', 'expected': [], 'published': ['203.0.113.9'],
+                                          'external': True, 'ok': True})
+        out = core.compare_delegation('example.com', ns, [], observed(names, seen), [], 'ok')
+        self.assertFalse(out['glue'][1]['ok'])
+        self.assertTrue(out['glue'][1]['external'])
+
     def test_everything_in_place(self):
         out = self.compare(observed(['ns1.example.com', 'ns2.example.net'],
                                     {'ns1.example.com': ['2606:4700:4700:0::1111', '1.1.1.1']}), [DS], [DS])
         self.assertTrue(out['delegated'])
         self.assertEqual((out['ns_missing'], out['ns_extra']), ([], []))
         self.assertEqual(out['glue'], [{'ns_name': 'ns1.example.com', 'expected': ['1.1.1.1', '2606:4700:4700::1111'],
-                                        'published': ['1.1.1.1', '2606:4700:4700:0::1111'], 'ok': True}])
+                                        'published': ['1.1.1.1', '2606:4700:4700:0::1111'], 'external': False,
+                                        'ok': True}])
         self.assertTrue(out['ds_ok'])
         self.assertEqual(out['parent'], 'com')
 

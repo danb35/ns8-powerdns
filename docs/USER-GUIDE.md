@@ -167,6 +167,11 @@ answering*, by asking its NOTIFY addresses for each zone. Some providers' NOTIFY
 answer queries, so *Not answering* does not always mean something is wrong. An external secondary
 can always be removed; its name servers then leave the NS records of its zones.
 
+Some providers let you use name servers under your own domain, such as `ns3.example.com`. Such a
+name inside the zone needs glue records at the registrar, with the addresses the provider gives you
+for it: the zone's **Details** says so, and the delegation check confirms that the registrar
+publishes glue for it, without checking the addresses.
+
 As for internal secondaries, adding or removing an advertised external secondary changes the name
 servers of the zones it receives: update them at the registrar (see [At the
 registrar](#at-the-registrar)).

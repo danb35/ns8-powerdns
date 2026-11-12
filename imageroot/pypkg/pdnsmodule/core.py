@@ -195,13 +195,21 @@ def glue_warnings(settings, zone):
 
 
 def name_servers(settings, zone):
-    """What the registrar needs for each NS name: whether it is inside the zone, and its addresses."""
+    """What the registrar needs for each NS name: whether it is inside the zone, and its addresses.
+
+    An external secondary's name (DESIGN 6.6) is marked external: its addresses are the
+    provider's, which the module does not know, so a name inside the zone still needs glue
+    but the administrator gets the addresses from the provider.
+    """
     zone = dnsutil.canonical(zone)
     known = {dnsutil.canonical(settings.ns_name): settings.addresses}
     for peer in internal_peers(settings):
         if peer.get('ns_name'):
             known[dnsutil.canonical(peer['ns_name'])] = peer.get('addresses', [])
+    external = {dnsutil.canonical(n) for p in external_peers(settings) if p.get('advertise') and peer_gets_zone(p, zone)
+                for n in p.get('ns_names', [])}
     return [{'ns_name': dnsutil.display(n), 'glue': dnsutil.is_subdomain(n, zone),
+             'external': n in external and n not in known,
              'addresses': [{'address': a, 'public': dnsutil.is_public(a)} for a in known.get(n, [])]}
             for n in ns_names(settings, zone)]
 
@@ -240,8 +248,13 @@ def compare_delegation(zone, servers, ds_expected, observed, ds_published, resol
                 continue
             wanted = sorted(a['address'] for a in server['addresses'] if a['public'])
             have = sorted(observed['glue'].get(dnsutil.canonical(server['ns_name']), []))
+            if server.get('external'):
+                # The provider's addresses are not known here: glue being there is all that can be checked.
+                ok = bool(have)
+            else:
+                ok = bool(have) and set(_canonical_ip(a) for a in have) == set(_canonical_ip(a) for a in wanted)
             result['glue'].append({'ns_name': server['ns_name'], 'expected': wanted, 'published': have,
-                                   'ok': bool(have) and set(_canonical_ip(a) for a in have) == set(_canonical_ip(a) for a in wanted)})
+                                   'external': bool(server.get('external')), 'ok': ok})
     if ds_published is not None:
         if ds_expected:
             # Every DS at the parent must match a key, or validating resolvers fail the zone

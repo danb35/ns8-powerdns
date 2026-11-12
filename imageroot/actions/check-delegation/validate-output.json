@@ -103,6 +103,10 @@
                             "type": "string"
                         }
                     },
+                    "external": {
+                        "type": "boolean",
+                        "description": "An external secondary's name server: only the presence of glue is checked, since its addresses are the provider's"
+                    },
                     "ok": {
                         "type": "boolean"
                     }

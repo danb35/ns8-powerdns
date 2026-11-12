@@ -342,8 +342,11 @@ the zones it is given.
 
 **NS records.** An advertised external peer adds its `ns_names` to the apex NS of the zones it
 receives, so the apex NS now depends on the zone (§5.2). `get-zone` and `check-delegation` list
-them like any other name server. Glue is reported for an NS name inside the zone, with no address,
-since the module does not know the provider's.
+them like any other name server, marked `external`. Some providers offer name servers under the
+customer's own domain (`ns3.example.com`); such a name inside the zone needs glue, but its addresses
+are the provider's, which the module does not know. The Zones page then tells the administrator to
+ask the provider for them, and `check-delegation` checks only that the parent publishes glue for that
+name, not which addresses.
 
 **Transport.** Transfers and NOTIFY to an external peer cross the internet on port 53, not the
 cluster VPN. TSIG authenticates them and protects them from tampering, but does not encrypt them:

@@ -119,6 +119,20 @@ class NsNames(unittest.TestCase):
         self.assertEqual(core.ns_names(self.settings, 'example.org.'),
                          ['ns.all.example.', 'ns1.example.com.', 'ns2.example.net.'])
 
+    def test_a_provider_name_inside_the_zone_needs_glue_and_is_external(self):
+        peers = json.load(open(self.tmp.name))
+        peers['peers'].append({'kind': 'external', 'id': 'ext4', 'ns_names': ['ns3.example.com'], 'advertise': True,
+                               'zones': ['example.com']})
+        with open(self.tmp.name, 'w') as fp:
+            json.dump(peers, fp)
+        out = {n['ns_name']: n for n in core.name_servers(self.settings, 'example.com')}
+        self.assertEqual((out['ns3.example.com']['glue'], out['ns3.example.com']['external']), (True, True))
+        self.assertEqual(out['ns3.example.com']['addresses'], [])
+        # This instance's own name is never external, nor an internal secondary's.
+        self.assertEqual((out['ns1.example.com']['glue'], out['ns1.example.com']['external']), (True, False))
+        self.assertFalse(out['ns2.example.net']['external'])
+        self.assertTrue(out['ns1.provider.example']['external'])
+
     def test_external_names_are_reported_without_addresses(self):
         out = {n['ns_name']: n for n in core.name_servers(self.settings, 'provider.example')}
         self.assertEqual(out['ns.all.example']['addresses'], [])
