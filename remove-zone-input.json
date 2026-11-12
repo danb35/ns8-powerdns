@@ -1,0 +1,1 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"remove-zone input","$id":"http://schema.nethserver.org/powerdns/remove-zone-input.json","description":"Delete a zone and its keys","type":"object","required":["zone"],"additionalProperties":false,"properties":{"zone":{"type":"string","minLength":1,"description":"Zone name, like example.com"}}}
