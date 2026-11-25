@@ -7,6 +7,10 @@ ${ADMIN_PASSWORD}    Nethesis,1234
 ${module_id}    ${EMPTY}
 ${ZONE}    robot.example
 ${EXTERNAL_SECRET}    ${EMPTY}
+# install: the image under test on a clean node. update: the stable release from
+# ns8-repomd, upgraded to the image under test once it is configured. Set by the CI.
+${SCENARIO}    install
+${REPOMD_URL}    https://danb35.github.io/ns8-repomd/
 
 *** Keywords ***
 Login to cluster-admin
@@ -77,14 +81,23 @@ Open zone details
 
 *** Test Cases ***
 Check if powerdns is installed correctly
-    ${output}  ${rc} =    Execute Command    add-module ${IMAGE_URL} 1
-    ...    return_rc=True
+    IF    '${SCENARIO}' == 'update'
+        # powerdns is not in the default repositories: by name, NS8 picks the stable release of ours
+        Run cluster action    add-repository    {"name":"danb35","url":"${REPOMD_URL}","status":true}
+        ${output}  ${rc} =    Execute Command    add-module powerdns 1
+        ...    return_rc=True
+    ELSE
+        ${output}  ${rc} =    Execute Command    add-module ${IMAGE_URL} 1
+        ...    return_rc=True
+    END
     Should Be Equal As Integers    ${rc}  0
     &{output} =    Evaluate    ${output}
     Set Global Variable    ${module_id}    ${output.module_id}
 
 Take screenshots of the first configuration
     [Tags]    ui
+    # On the update leg this page would show the stable release, not the image under test
+    Skip If    '${SCENARIO}' == 'update'    the update leg is still on the stable release here
     Import Library    Browser
     New Browser    chromium    headless=True
     New Context    ignoreHTTPSErrors=True
@@ -154,6 +167,35 @@ Check that an external secondary can be added
     Refused action    add-external-secondary    {"name":"robot provider","notify":["192.0.2.54"]}    name_exists
     Refused action    add-external-secondary
     ...    {"name":"Wide","notify":["192.0.2.54"],"auth":"ip","transfer_from":["0.0.0.0/0"]}    network_too_wide
+
+Check that the configuration survives the update to the image under test
+    Skip If    '${SCENARIO}' != 'update'    scenario is ${SCENARIO}, nothing to update
+    ${config} =    Run action    get-configuration
+    ${zones} =    Run action    list-zones
+    ${records} =    Run action    get-records    {"zone":"${ZONE}"}
+    ${zone} =    Run action    get-zone    {"zone":"${ZONE}"}
+    ${rc} =    Execute Command
+    ...    api-cli run update-module --data '{"force":true,"module_url":"${IMAGE_URL}","instances":["${module_id}"]}'
+    ...    return_rc=True  return_stdout=False
+    Should Be Equal As Integers    ${rc}  0
+    ${running} =    Execute Command    redis-cli hget module/${module_id}/environment IMAGE_URL
+    Should Be Equal    ${running}    ${IMAGE_URL}
+    Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone}[ds_records][0]
+    ${after} =    Run action    get-configuration
+    FOR    ${key}    IN    role    ns_name    hostmaster    listen_addresses    advertise
+    ...    soa_refresh    soa_retry    soa_expire    soa_minimum    vpn_address    vpn_port
+        Should Be Equal    ${after}[${key}]    ${config}[${key}]    ${key} changed in the update
+    END
+    ${after} =    Run action    list-zones
+    Should Be Equal    ${after}    ${zones}
+    ${after} =    Run action    get-records    {"zone":"${ZONE}"}
+    Should Be Equal    ${after}[records]    ${records}[records]
+    ${key} =    Run action    get-external-secondary-key    {"id":"ext1"}
+    Should Be Equal    ${key}[secret]    ${EXTERNAL_SECRET}
+    ${output} =    Execute Command    redis-cli hget module/${module_id}/srv/tcp/powerdns-api port
+    Should Not Be Empty    ${output}
+    ${serial} =    Serial on the VPN address
+    Should Match Regexp    ${serial}    ^[0-9]+$
 
 Take screenshots of the configured pages
     [Tags]    ui
