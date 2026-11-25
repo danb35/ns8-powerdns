@@ -7,6 +7,12 @@ ${ADMIN_PASSWORD}    Nethesis,1234
 ${module_id}    ${EMPTY}
 ${ZONE}    robot.example
 ${EXTERNAL_SECRET}    ${EMPTY}
+${dnshelper_id}    ${EMPTY}
+${ZONE2}    second.robot.example
+# install: the image under test on a clean node. update: the stable release from
+# ns8-repomd, upgraded to the image under test once it is configured. Set by the CI.
+${SCENARIO}    install
+${REPOMD_URL}    https://danb35.github.io/ns8-repomd/
 
 *** Keywords ***
 Login to cluster-admin
@@ -24,6 +30,27 @@ Run action
     Should Be Equal As Integers    ${rc}  0
     ${parsed} =    Evaluate    json.loads(r'''${output}''' or '{}')    modules=json
     RETURN    ${parsed}
+
+Run dnshelper action
+    [Arguments]    ${action}    ${data}={}
+    ${output}  ${rc} =    Execute Command    api-cli run module/${dnshelper_id}/${action} --data '${data}'
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}  0
+    ${parsed} =    Evaluate    json.loads(r'''${output}''' or '{}')    modules=json
+    RETURN    ${parsed}
+
+dnshelper adopts
+    [Arguments]    ${zone}    ${credential}
+    ${out} =    Run dnshelper action    list-zones
+    # A comprehension cannot see Robot's $variables past its first iterable: pass the zone as text
+    ${found} =    Evaluate    [z['credential'] for z in $out['zones'] if z['zone'] == '${zone}']
+    Should Be Equal    ${found}    ${{ [$credential] }}
+
+dnshelper does not have
+    [Arguments]    ${zone}
+    ${out} =    Run dnshelper action    list-zones
+    ${names} =    Evaluate    [z['zone'] for z in $out['zones']]
+    Should Not Contain    ${names}    ${zone}
 
 Run cluster action
     [Arguments]    ${action}    ${data}={}
@@ -77,14 +104,23 @@ Open zone details
 
 *** Test Cases ***
 Check if powerdns is installed correctly
-    ${output}  ${rc} =    Execute Command    add-module ${IMAGE_URL} 1
-    ...    return_rc=True
+    IF    '${SCENARIO}' == 'update'
+        # powerdns is not in the default repositories: by name, NS8 picks the stable release of ours
+        Run cluster action    add-repository    {"name":"danb35","url":"${REPOMD_URL}","status":true}
+        ${output}  ${rc} =    Execute Command    add-module powerdns 1
+        ...    return_rc=True
+    ELSE
+        ${output}  ${rc} =    Execute Command    add-module ${IMAGE_URL} 1
+        ...    return_rc=True
+    END
     Should Be Equal As Integers    ${rc}  0
     &{output} =    Evaluate    ${output}
     Set Global Variable    ${module_id}    ${output.module_id}
 
 Take screenshots of the first configuration
     [Tags]    ui
+    # On the update leg this page would show the stable release, not the image under test
+    Skip If    '${SCENARIO}' == 'update'    the update leg is still on the stable release here
     Import Library    Browser
     New Browser    chromium    headless=True
     New Context    ignoreHTTPSErrors=True
@@ -155,6 +191,73 @@ Check that an external secondary can be added
     Refused action    add-external-secondary
     ...    {"name":"Wide","notify":["192.0.2.54"],"auth":"ip","transfer_from":["0.0.0.0/0"]}    network_too_wide
 
+Check that dnshelper adopts the zones when it is installed
+    # dnshelper is in NethForge, which every cluster has but disabled
+    Run cluster action    alter-repository    {"name":"nethforge","status":true}
+    ${output}  ${rc} =    Execute Command    add-module dnshelper 1
+    ...    return_rc=True
+    Should Be Equal As Integers    ${rc}  0
+    &{output} =    Evaluate    ${output}
+    Set Global Variable    ${dnshelper_id}    ${output.module_id}
+    # its create-module runs sync-powerdns: a credential named after the primary, and its zones
+    Wait Until Keyword Succeeds    2 min    10 sec    dnshelper adopts    ${ZONE}    ${module_id}
+
+Check that powerdns hands the records over to dnshelper
+    ${out} =    Run action    get-records    {"zone":"${ZONE}"}
+    Should Be True    ${out}[managed_by_dnshelper]
+    Should Be Equal    ${out}[dnshelper_module_id]    ${dnshelper_id}
+    Should Not Be True    ${out}[editable]
+    Refused action    set-records    {"zone":"${ZONE}","records":[{"name":"www","type":"A","ttl":300,"data":"192.0.2.9"}]}    managed_by_dnshelper
+
+Check that a record written by dnshelper is served
+    ${before} =    Serial on the VPN address
+    Run dnshelper action    set-records    {"zone":"${ZONE}","records":[{"name":"api","type":"A","ttl":300,"data":"192.0.2.2"}]}
+    ${out} =    Run action    get-records    {"zone":"${ZONE}"}
+    ${found} =    Evaluate    [r['data'] for r in $out['records'] if r['type'] == 'A' and r['name'].split('.')[0] == 'api']
+    Should Be Equal    ${found}    ${{ ['192.0.2.2'] }}
+    # SOA-EDIT-API raises the serial on every change through the API
+    ${after} =    Serial on the VPN address
+    Should Be True    ${after} > ${before}
+
+Check that dnshelper follows zones added and removed in powerdns
+    # powerdns-zones-changed events, not a sync run by hand
+    Run action    add-zone    {"zone":"${ZONE2}"}
+    Wait Until Keyword Succeeds    2 min    5 sec    dnshelper adopts    ${ZONE2}    ${module_id}
+    Run action    remove-zone    {"zone":"${ZONE2}"}
+    Wait Until Keyword Succeeds    2 min    5 sec    dnshelper does not have    ${ZONE2}
+
+Check that the configuration survives the update to the image under test
+    Skip If    '${SCENARIO}' != 'update'    scenario is ${SCENARIO}, nothing to update
+    ${config} =    Run action    get-configuration
+    ${zones} =    Run action    list-zones
+    ${records} =    Run action    get-records    {"zone":"${ZONE}"}
+    # Not ${zone}: Robot variable names ignore case, so that would replace ${ZONE}
+    ${zone_info} =    Run action    get-zone    {"zone":"${ZONE}"}
+    ${rc} =    Execute Command
+    ...    api-cli run update-module --data '{"force":true,"module_url":"${IMAGE_URL}","instances":["${module_id}"]}'
+    ...    return_rc=True  return_stdout=False
+    Should Be Equal As Integers    ${rc}  0
+    ${running} =    Execute Command    redis-cli hget module/${module_id}/environment IMAGE_URL
+    Should Be Equal    ${running}    ${IMAGE_URL}
+    Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone_info}[ds_records][0]
+    ${after} =    Run action    get-configuration
+    FOR    ${key}    IN    role    ns_name    hostmaster    listen_addresses    advertise
+    ...    soa_refresh    soa_retry    soa_expire    soa_minimum    vpn_address    vpn_port
+        Should Be Equal    ${after}[${key}]    ${config}[${key}]    ${key} changed in the update
+    END
+    ${after} =    Run action    list-zones
+    Should Be Equal    ${after}    ${zones}
+    ${after} =    Run action    get-records    {"zone":"${ZONE}"}
+    Should Be Equal    ${after}[records]    ${records}[records]
+    Should Be True    ${after}[managed_by_dnshelper]
+    dnshelper adopts    ${ZONE}    ${module_id}
+    ${key} =    Run action    get-external-secondary-key    {"id":"ext1"}
+    Should Be Equal    ${key}[secret]    ${EXTERNAL_SECRET}
+    ${output} =    Execute Command    redis-cli hget module/${module_id}/srv/tcp/powerdns-api port
+    Should Not Be Empty    ${output}
+    ${serial} =    Serial on the VPN address
+    Should Match Regexp    ${serial}    ^[0-9]+$
+
 Take screenshots of the configured pages
     [Tags]    ui
     Import Library    Browser
@@ -194,6 +297,12 @@ Check that a backup can be restored over the running instance
     Run cluster action    remove-backup    {"id":${backup}}
     Run cluster action    remove-backup-repository    {"id":"${repo}[id]"}
 
+Check that dnshelper follows the restored instance
+    # The restore replaces the module: the credential moves to the new id once the old one is gone.
+    # Unstable until it has passed a few runs; it never ran outside the LAN cluster.
+    [Tags]    unstable
+    Wait Until Keyword Succeeds    3 min    10 sec    dnshelper adopts    ${ZONE}    ${module_id}
+
 Check that the external secondary survived the restore and can be removed
     ${key} =    Run action    get-external-secondary-key    {"id":"ext1"}
     Should Be Equal    ${key}[secret]    ${EXTERNAL_SECRET}
@@ -208,8 +317,15 @@ Check that a zone can be removed
     Run action    remove-zone    {"zone":"${ZONE}"}
     ${serial} =    Serial on the VPN address
     Should Be Equal    ${serial}    None
+    Wait Until Keyword Succeeds    2 min    5 sec    dnshelper does not have    ${ZONE}
 
 Check if powerdns is removed correctly
     ${rc} =    Execute Command    remove-module --no-preserve ${module_id}
+    ...    return_rc=True  return_stdout=False
+    Should Be Equal As Integers    ${rc}  0
+
+Check that dnshelper can be removed after powerdns
+    Skip If    '${dnshelper_id}' == ''    dnshelper was not installed
+    ${rc} =    Execute Command    remove-module --no-preserve ${dnshelper_id}
     ...    return_rc=True  return_stdout=False
     Should Be Equal As Integers    ${rc}  0
