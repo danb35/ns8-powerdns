@@ -42,7 +42,8 @@ Run dnshelper action
 dnshelper adopts
     [Arguments]    ${zone}    ${credential}
     ${out} =    Run dnshelper action    list-zones
-    ${found} =    Evaluate    [z['credential'] for z in $out['zones'] if z['zone'] == $zone]
+    # A comprehension cannot see Robot's $variables past its first iterable: pass the zone as text
+    ${found} =    Evaluate    [z['credential'] for z in $out['zones'] if z['zone'] == '${zone}']
     Should Be Equal    ${found}    ${{ [$credential] }}
 
 dnshelper does not have
@@ -230,14 +231,15 @@ Check that the configuration survives the update to the image under test
     ${config} =    Run action    get-configuration
     ${zones} =    Run action    list-zones
     ${records} =    Run action    get-records    {"zone":"${ZONE}"}
-    ${zone} =    Run action    get-zone    {"zone":"${ZONE}"}
+    # Not ${zone}: Robot variable names ignore case, so that would replace ${ZONE}
+    ${zone_info} =    Run action    get-zone    {"zone":"${ZONE}"}
     ${rc} =    Execute Command
     ...    api-cli run update-module --data '{"force":true,"module_url":"${IMAGE_URL}","instances":["${module_id}"]}'
     ...    return_rc=True  return_stdout=False
     Should Be Equal As Integers    ${rc}  0
     ${running} =    Execute Command    redis-cli hget module/${module_id}/environment IMAGE_URL
     Should Be Equal    ${running}    ${IMAGE_URL}
-    Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone}[ds_records][0]
+    Wait Until Keyword Succeeds    3 min    10 sec    The zone serves the same DS record    ${zone_info}[ds_records][0]
     ${after} =    Run action    get-configuration
     FOR    ${key}    IN    role    ns_name    hostmaster    listen_addresses    advertise
     ...    soa_refresh    soa_retry    soa_expire    soa_minimum    vpn_address    vpn_port
