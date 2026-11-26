@@ -1,4 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>NethServer/.github:ns8-automerge"]
+  "extends": ["local>NethServer/.github:ns8-automerge"],
+  "packageRules": [
+    {
+      "description": "Unit tests stay on the oldest Python an NS8 node runs (see test-unit.yml)",
+      "matchFileNames": [".github/workflows/test-unit.yml"],
+      "matchDepNames": ["python"],
+      "enabled": false
+    }
+  ]
 }

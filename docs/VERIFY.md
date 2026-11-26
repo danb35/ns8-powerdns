@@ -1,7 +1,7 @@
 # VERIFY results
 
 DESIGN.md marks items to check before code depends on them. These are the results, and how each was
-checked. "Live" means PowerDNS 5.0.8 in Docker (`tests/unit/test_live_pdns.py` keeps the checks that
+checked. "Live" means PowerDNS 5.0.8 or later 5.0.x in Docker (`tests/unit/test_live_pdns.py` keeps the checks that
 can be automated). "Source" means ns8-core or PowerDNS source (`rel/auth-5.0.x`).
 
 **LAN node, 2026-11-05 (one node, Rocky 9.8, core 3.24):** a primary was installed from a build on the
@@ -204,7 +204,7 @@ held up a restored secondary for over three minutes. It is 5 seconds now.
   escaped quote (`"a \"q\" b"`) is refused with 422, and an escaped backslash is stored and served without
   it (`back\slash` becomes `backslash`). 5.0.8 handles both. This broke a powerdns live test added for the
   case, and dnshelper's `TestLiveTXTQuotesAndBackslashes`; everything else passed on 5.1.5. Upstream:
-  PowerDNS/pdns#18159, fixed in master by #18176, not yet in a 5.1 release. The module stays on 5.0.8
+  PowerDNS/pdns#18159, fixed in master by #18176, not yet in a 5.1 release. The module stays on 5.0.x
   (DESIGN 2).
 - **Testing NOTIFY with a container: pin its address.** PowerDNS sends NOTIFY from one fixed source port,
   so a UDP connection-tracking entry for it never expires while NOTIFYs keep coming. Restarting a
