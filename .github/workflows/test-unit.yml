@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
+          # The oldest Python on an NS8 node, where imageroot/pypkg runs. Keep it there
+          # so CI catches code that needs a newer Python. renovate.json skips it.
           python-version: '3.11'
       - name: Install dig
         run: sudo apt-get update && sudo apt-get install -y dnsutils

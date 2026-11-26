@@ -47,7 +47,7 @@ buildah config --entrypoint=/ \
     --label="org.nethserver.rootfull=0" \
     --label="org.nethserver.max-per-node=1" \
     --label="org.nethserver.min-core=3.18.0" \
-    --label="org.nethserver.images=docker.io/powerdns/pdns-auth-50:5.0.8" \
+    --label="org.nethserver.images=docker.io/powerdns/pdns-auth-50:5.0.10" \
     "${container}"
 # Commit the image
 buildah commit "${container}" "${repobase}/${reponame}"

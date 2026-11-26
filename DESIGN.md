@@ -68,7 +68,7 @@ Node). Then:
 - **DNSSEC.** Online signing is enabled by one API field (`dnssec: true`). Outgoing zone
   transfers carry the signatures, so secondaries serve the signed zone without holding keys.
 
-**Image.** `docker.io/powerdns/pdns-auth-50:5.0.8`. Pin the full tag in `org.nethserver.images`
+**Image.** `docker.io/powerdns/pdns-auth-50:5.0.10` (5.0.10 fixes PowerDNS-SA-2026-14). Pin the full tag in `org.nethserver.images`
 so Renovate can track it.
 
 5.0 has received critical fixes only since 5.1 came out (June 2026), and reaches end of life
